@@ -20,6 +20,8 @@ from typing import Dict, List, Optional, Union
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
+import urllib3
+import os
 
 # Third-party library imports
 from plexapi.server import PlexServer
@@ -81,7 +83,10 @@ def connect_to_plex() -> PlexServer:
         SystemExit: If connection fails
     """
     try:
-        return PlexServer(PLEX_URL, PLEX_TOKEN)
+        session = Session()
+        session.verify = False
+        urllib3.disable_warnings()
+        return PlexServer(PLEX_URL, PLEX_TOKEN, session=session)
     except Exception as e:
         print(f"Failed to connect to Plex server: {e}")
         sys.exit(1)
@@ -101,15 +106,26 @@ def get_tvmaze_show_info(show_name: str) -> Optional[Dict]:
         Results are cached to prevent redundant API calls
     """
     try:
-        # Search for show
-        response = session.get(
-            f"{TVMAZE_API}/search/shows",
-            params={'q': show_name}
-        )
-        
-        if response.status_code == 200 and response.json():
-            # Get episode list for show
-            show_id = response.json()[0]['show']['id']
+        show_id = None
+
+        if show_name[:2] == 'tt':
+            # Search for show based on IMDB ID
+            response = session.get(
+                f"{TVMAZE_API}/lookup/shows",
+                params={'imdb': show_name}
+            )
+            if response.status_code == 200 and response.json():
+                show_id = response.json()['id']
+        else:
+            # Search for show based on title
+            response = session.get(
+                f"{TVMAZE_API}/search/shows",
+                params={'q': show_name}
+            )
+            if response.status_code == 200 and response.json():
+                show_id = response.json()[0]['show']['id']
+
+        if show_id:
             episodes_response = session.get(f"{TVMAZE_API}/shows/{show_id}/episodes")
             
             if episodes_response.status_code == 200:
@@ -144,6 +160,7 @@ def process_movie(movie) -> Dict:
     return {
         'Title': movie.title,
         'Video Resolution': media.videoResolution if media else 'Unknown',
+        'Bitrate': media.bitrate if media else 'Unknown',
         'Year': movie.year,
         'Studio': movie.studio,
         'ContentRating': movie.contentRating,
@@ -163,6 +180,36 @@ def get_movie_details(movies) -> List[Dict]:
     """
     with ThreadPoolExecutor(max_workers=10) as executor:
         return list(executor.map(process_movie, movies))
+
+
+def get_show_details(shows):
+    shows_data = []
+    max_seasons = 0
+            
+    for show in shows:
+        print(f"Processing: {show.title}")
+        imdb_id = next((g.id for g in show.guids if g.id.startswith('imdb')), None)
+        if imdb_id:
+            imdb_id = imdb_id.split('imdb://')[-1]
+        showTitle = show.originalTitle if show.originalTitle else show.title
+        tvmaze_info = get_tvmaze_show_info(imdb_id if imdb_id else showTitle)
+        if tvmaze_info:
+            max_seasons = max(max_seasons, tvmaze_info['total_seasons'])
+        else:
+            print(f"Could not find TVMaze info for: {show.title} with IMDB ID: {imdb_id}")
+        shows_data.append({
+            'title': show.title,
+            'seasons': {
+                s.seasonNumber: {
+                    'episodes_in_plex': len(s.episodes()),
+                    'season_number': s.seasonNumber
+                }
+                for s in show.seasons()
+            },
+            'tvmaze_info': tvmaze_info
+        })
+        
+    return shows_data,max_seasons
 
 def apply_cell_styling(
     cell,
@@ -221,7 +268,7 @@ def auto_adjust_columns(ws):
         length = max(len(str(cell.value or '')) for cell in column)
         ws.column_dimensions[column[0].column_letter].width = length + 2
 
-def create_movies_worksheet(wb: Workbook, movie_list: List[Dict]):
+def create_movies_worksheet(folder_name, wb: Workbook, movie_list: List[Dict]):
     """
     Create and populate Movies worksheet.
     
@@ -231,7 +278,7 @@ def create_movies_worksheet(wb: Workbook, movie_list: List[Dict]):
     """
     # Prepare data
     df = pd.DataFrame(movie_list).sort_values('Title')
-    ws = wb.create_sheet("Movies")
+    ws = wb.create_sheet(folder_name)
     ws.freeze_panes = 'A2'
 
     # Create headers
@@ -245,13 +292,16 @@ def create_movies_worksheet(wb: Workbook, movie_list: List[Dict]):
         resolution = str(row_data['Video Resolution']).lower()
         row_fill = (
             STYLES['fills']['4k'] if resolution in ['4k', 'uhd'] else
-            STYLES['fills']['yellow'] if resolution in ['sd', '480', '720'] else
+            STYLES['fills']['yellow'] if resolution in ['sd', '480', '576', '720'] else
             None
         )
         
         # Write each cell in the row
         for col_idx, value in enumerate(row_data, 1):
-            cell = ws.cell(row=row_idx + 2, column=col_idx, value=str(value))
+            try:
+                cell = ws.cell(row=row_idx + 2, column=col_idx, value=float(value))
+            except:
+                cell = ws.cell(row=row_idx + 2, column=col_idx, value=str(value))
             alignment = 'left' if col_idx in [1, 5] else 'center'  # Title and File path left-aligned
             apply_cell_styling(cell, alignment=alignment, fill=row_fill)
 
@@ -262,11 +312,12 @@ def create_movies_worksheet(wb: Workbook, movie_list: List[Dict]):
     
     # Create table only if there's data
     if last_row > 1:
-        create_table(ws, "MoviesTable", f"A1:{last_col_letter}{last_row}")
+        create_table(ws, folder_name+"Table", f"A1:{last_col_letter}{last_row}")
     
     auto_adjust_columns(ws)
 
 def create_tv_shows_worksheet(
+    folder_name: str,
     wb: Workbook,
     shows_data: List[Dict],
     max_seasons: int
@@ -279,7 +330,7 @@ def create_tv_shows_worksheet(
         shows_data: List of TV show details
         max_seasons: Maximum number of seasons across all shows
     """
-    ws = wb.create_sheet("TV Shows")
+    ws = wb.create_sheet(folder_name)
     ws.freeze_panes = 'A2'
 
     # Create headers
@@ -297,82 +348,110 @@ def create_tv_shows_worksheet(
         apply_cell_styling(title_cell, alignment='left')
         
         # Completion status
-        total_seasons = show['tvmaze_info']['total_seasons']
-        complete_count = sum(
-            1 for season_num in range(1, total_seasons + 1)
-            if show['seasons'].get(season_num, {}).get('episodes_in_plex', 0) ==
-            show['tvmaze_info']['seasons'].get(season_num, {}).get('total_episodes', 0)
-        )
-        
-        status_cell = ws.cell(row=row_idx, column=2, value=f"{complete_count}/{total_seasons}")
-        fill = (STYLES['fills']['green'] if complete_count == total_seasons else
-               STYLES['fills']['red'] if complete_count > 0 else None)
-        apply_cell_styling(status_cell, fill=fill)
-        
-        # Season details
-        for season in range(1, max_seasons + 1):
-            cell = ws.cell(row=row_idx, column=season + 2)
-            if season <= total_seasons:
+        if (show.get('tvmaze_info')):
+            # If TVMaze info is available, calculate completion status
+            total_seasons = show['tvmaze_info']['total_seasons']
+            complete_count = sum(
+                1 for season_num in range(1, total_seasons + 1)
+                if show['seasons'].get(season_num, {}).get('episodes_in_plex', 0) >=
+                show['tvmaze_info']['seasons'].get(season_num, {}).get('total_episodes', 0)
+            )
+            
+            status_cell = ws.cell(row=row_idx, column=2, value=f"{complete_count}/{total_seasons}")
+            fill = (STYLES['fills']['green'] if complete_count == total_seasons else
+                STYLES['fills']['red'] if complete_count > 0 else None)
+            apply_cell_styling(status_cell, fill=fill)
+            
+            # Season details
+            for season in range(1, max_seasons + 1):
+                cell = ws.cell(row=row_idx, column=season + 2)
+                if season <= total_seasons:
+                    plex_count = show['seasons'].get(season, {}).get('episodes_in_plex', 0)
+                    total_count = show['tvmaze_info']['seasons'].get(season, {}).get('total_episodes', 0)
+                    
+                    if total_count > 0:
+                        cell.value = f"{plex_count}/{total_count}"
+                        fill = (STYLES['fills']['green'] if plex_count >= total_count else
+                            STYLES['fills']['red'] if plex_count > 0 else None)
+                        apply_cell_styling(cell, fill=fill)
+                else:
+                    apply_cell_styling(cell, fill=STYLES['fills']['gray'])
+        else:
+            plex_seasons = 0 if show.get("seasons") is None else len(show['seasons'])
+            status_cell = ws.cell(row=row_idx, column=2, value=f"{plex_seasons}/?")
+            apply_cell_styling(status_cell, fill=None)
+            for season in range(1, max_seasons + 1):
+                cell = ws.cell(row=row_idx, column=season + 2)
                 plex_count = show['seasons'].get(season, {}).get('episodes_in_plex', 0)
-                total_count = show['tvmaze_info']['seasons'].get(season, {}).get('total_episodes', 0)
-                
-                if total_count > 0:
-                    cell.value = f"{plex_count}/{total_count}"
-                    fill = (STYLES['fills']['green'] if plex_count == total_count else
-                           STYLES['fills']['red'] if plex_count > 0 else None)
+                if plex_count > 0:
+                    cell.value = plex_count
+                    fill = (STYLES['fills']['green'] if plex_count > 0 else STYLES['fills']['red'])
                     apply_cell_styling(cell, fill=fill)
-            else:
-                apply_cell_styling(cell, fill=STYLES['fills']['gray'])
+                else:
+                    apply_cell_styling(cell, fill=STYLES['fills']['gray'])
     
     auto_adjust_columns(ws)
 
+def check_file_writable(filename):
+    """
+    Check if a file is writable.
+
+    Args:
+        filename (str): The path to the file to check.
+
+    Returns:
+        bool: True if the file is writable or can be created, False otherwise.
+    """
+    if os.path.exists(filename):
+        try:
+            with open(filename, 'a'):
+                pass
+            return True
+        except OSError:
+            return False
+    else:
+        pdir = os.path.dirname(filename) or '.'
+        return os.access(pdir, os.W_OK)
+
 def main():
     """Main execution function."""
-    print("Connecting to Plex server...")
-    plex = connect_to_plex()
-    wb = Workbook()
-    
-    # Process Movies
-    print("Processing movies...")
-    movie_list = get_movie_details(plex.library.section('Movies').all())
-    
-    # Process TV Shows
-    print("Processing TV shows...")
-    shows_data = []
-    max_seasons = 0
-    
-    for show in plex.library.section('TV Shows').all():
-        print(f"Processing: {show.title}")
-        if tvmaze_info := get_tvmaze_show_info(show.title):
-            max_seasons = max(max_seasons, tvmaze_info['total_seasons'])
-            shows_data.append({
-                'title': show.title,
-                'seasons': {
-                    s.seasonNumber: {
-                        'episodes_in_plex': len(s.episodes()),
-                        'season_number': s.seasonNumber
-                    }
-                    for s in show.seasons()
-                },
-                'tvmaze_info': tvmaze_info
-            })
-        else:
-            print(f"Could not find TVMaze info for: {show.title}")
-    
-    # Create Excel report
-    print("Creating Excel report...")
-    for sheet_name in wb.sheetnames:
-        wb.remove(wb[sheet_name])
-    
-    create_movies_worksheet(wb, movie_list)
-    create_tv_shows_worksheet(wb, shows_data, max_seasons)
-    
-    # Save workbook
+
     timestamp = datetime.now().strftime('%Y%m%d')
     filename = f"PlexMediaExport_{timestamp}.xlsx"
+
+    if not check_file_writable(filename):
+        sys.exit(f"Error: Cannot write to {filename} or its directory.")
+    wb = Workbook()
+    for sheet_name in wb.sheetnames:
+        wb.remove(wb[sheet_name])
+
+    print("Connecting to Plex server...")
+    plex = connect_to_plex()
+
+    total_movies = 0
+    total_shows = 0
+
+    # Get sections and filter for movies and TV shows only
+    sections = [
+        section for section in plex.library.sections()
+        if section.type in ['movie', 'show']
+    ]
+
+    for section in sections:
+        print(f"Processing {section.title}...")
+        if section.type == 'movie':
+            movie_list = get_movie_details(plex.library.section(section.title).all())
+            create_movies_worksheet(section.title, wb, movie_list)
+            total_movies += len(movie_list)
+        elif section.type == 'show':
+            shows_data, max_seasons = get_show_details(plex.library.section(section.title).all())
+            create_tv_shows_worksheet(section.title, wb, shows_data, max_seasons)
+            total_shows += len(shows_data)
+
+    # Save workbook
     wb.save(filename)
     
-    print(f"Export complete! Found {len(movie_list)} movies and {len(shows_data)} TV series.")
+    print(f"Export complete! Found {total_movies} movies and {total_shows} TV series.")
     print(f"Report saved as: {filename}")
 
 if __name__ == "__main__":
