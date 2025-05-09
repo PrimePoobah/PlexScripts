@@ -268,7 +268,7 @@ def auto_adjust_columns(ws):
         length = max(len(str(cell.value or '')) for cell in column)
         ws.column_dimensions[column[0].column_letter].width = length + 2
 
-def create_movies_worksheet(folder_name, wb: Workbook, movie_list: List[Dict]):
+def create_movies_worksheet(section_name, wb: Workbook, movie_list: List[Dict]):
     """
     Create and populate Movies worksheet.
     
@@ -278,7 +278,7 @@ def create_movies_worksheet(folder_name, wb: Workbook, movie_list: List[Dict]):
     """
     # Prepare data
     df = pd.DataFrame(movie_list).sort_values('Title')
-    ws = wb.create_sheet(folder_name)
+    ws = wb.create_sheet(section_name)
     ws.freeze_panes = 'A2'
 
     # Create headers
@@ -312,12 +312,12 @@ def create_movies_worksheet(folder_name, wb: Workbook, movie_list: List[Dict]):
     
     # Create table only if there's data
     if last_row > 1:
-        create_table(ws, folder_name+"Table", f"A1:{last_col_letter}{last_row}")
+        create_table(ws, section_name+"Table", f"A1:{last_col_letter}{last_row}")
     
     auto_adjust_columns(ws)
 
 def create_tv_shows_worksheet(
-    folder_name: str,
+    section_name: str,
     wb: Workbook,
     shows_data: List[Dict],
     max_seasons: int
@@ -330,7 +330,7 @@ def create_tv_shows_worksheet(
         shows_data: List of TV show details
         max_seasons: Maximum number of seasons across all shows
     """
-    ws = wb.create_sheet(folder_name)
+    ws = wb.create_sheet(section_name)
     ws.freeze_panes = 'A2'
 
     # Create headers
