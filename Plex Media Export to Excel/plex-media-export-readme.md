@@ -9,12 +9,14 @@ A Python utility that generates a detailed Excel report of your Plex Media Serve
 ## 🎯 Overview
 
 This script creates a comprehensive Excel spreadsheet with two worksheets:
+
 - **Movies**: Displays all movies with resolution-based highlighting
 - **TV Shows**: Shows episode completion status verified against TVMaze
 
 ### 📋 Key Features
 
 #### Movies Tracking
+
 - Complete movie library inventory
 - Resolution-based row highlighting:
   - 4K content (Light Green)
@@ -23,6 +25,7 @@ This script creates a comprehensive Excel spreadsheet with two worksheets:
 - Video format and file path information
 
 #### TV Show Tracking
+
 - Series completion overview
 - Season-by-season episode verification
 - Color-coded status indicators
@@ -40,17 +43,20 @@ This script creates a comprehensive Excel spreadsheet with two worksheets:
 ### Installation
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/PrimePoobah/plex-media-export.git
 cd plex-media-export
 ```
 
 2. Install required packages:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 3. Configure your Plex settings:
+
 ```python
 # Edit these variables in the script
 PLEX_URL = 'http://{Plex_IP_or_URL}:32400'
@@ -60,6 +66,7 @@ PLEX_TOKEN = '{PlexToken}'
 ### Usage
 
 Run the script:
+
 ```bash
 python PlexMediaExport.py
 ```
@@ -69,31 +76,35 @@ The script will generate `PlexMediaExport_YYYYMMDD.xlsx` in your current directo
 ## 📊 Output Format
 
 ### Movies Sheet
-| Column | Description |
-|--------|-------------|
-| Title | Movie name |
+
+| Column           | Description               |
+| ---------------- | ------------------------- |
+| Title            | Movie name                |
 | Video Resolution | Quality (4K, 1080p, etc.) |
-| Year | Release year |
-| Studio | Production studio |
-| ContentRating | Rating (PG, R, etc.) |
-| File | Full file path |
-| Container | File format |
+| Year             | Release year              |
+| Studio           | Production studio         |
+| ContentRating    | Rating (PG, R, etc.)      |
+| File             | Full file path            |
+| Container        | File format               |
 
 ### TV Shows Sheet
-| Column | Description |
-|--------|-------------|
-| Show Title | Series name |
+
+| Column          | Description              |
+| --------------- | ------------------------ |
+| Show Title      | Series name              |
 | Complete Series | Overall completion ratio |
-| Season X | Episodes present/total |
+| Season X        | Episodes present/total   |
 
 ## 🎨 Color Coding
 
 ### Movies
+
 - 🟩 **Light Green**: 4K/UHD content
 - 🟨 **Yellow**: 720p or lower
 - ⬜ **No Color**: 1080p content
 
 ### TV Shows
+
 - 🟩 **Green**: Complete series/season
 - 🟥 **Red**: Incomplete series/season
 - ⬛ **Gray**: Non-existent season
