@@ -1,4 +1,4 @@
-# Plex Media Export Tools
+# 📦 Plex Media Export Tools - Because Your Digital Media Hoard Deserves Excel-level OCD
 
 ![GPL License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![Python Version](https://img.shields.io/badge/python-3.6%2B-blue)
@@ -10,202 +10,186 @@
 ![Dotenv Support](https://img.shields.io/badge/dotenv-configurable-orange)
 ![Multi-Threading](https://img.shields.io/badge/processing-parallel-blue)
 
-A comprehensive collection of Python utilities designed to export content from your Plex Media Server into detailed Excel reports. These tools help you catalog, audit, and manage your movie and TV show collections with powerful features like resolution tracking and TV show completeness verification.
+## Hey there, Beautiful Media Hoarders! 👋
 
-## 📋 Overview
+So you've got a Plex server stuffed with more cinematic gold and TV trash, than a Blockbuster from 2003 (RIP, sweet prince), and you want to know what the hell you actually have? Well buckle up, buttercup! This isn't just another boring README written by some code monkey who thinks "fun" is a variable name.
 
-This repository contains three specialized scripts for Plex content management:
+This is a comprehensive collection of Python scripts that'll export your Plex content into Excel reports so detailed, they'd make the IRS weep tears of joy. We're talking movie catalogs, TV show completeness tracking, and enough color-coding to make a rainbow jealous.
 
-1. [**Plex Media Export**](https://github.com/PrimePoobah/PlexScripts/tree/main/Plex%20Media%20Export%20to%20Excel) - A complete solution that combines movie and TV show tracking in a single Excel workbook
-2. [**Plex Movie List Exporter**](https://github.com/PrimePoobah/PlexScripts/tree/main/Plex%20Movie%20List%20Export%20to%20Excel) - A focused utility for movie library cataloging
-3. [**Plex TV Show Audit Tool**](https://github.com/PrimePoobah/PlexScripts/tree/main/Plex%20TV%20Show%20Export%20to%20Excel) - A specialized script for tracking TV show completion status with TVMaze integration
+---
 
-All tools are designed to be user-friendly, performance-optimized, and provide valuable insights into your media collection.
+## 🎞️ What Is This Sorcery?
 
-## ✨ Key Features
+Meet your new best frenemy: a trio of Python-powered bad boys that rip your Plex library a new spreadsheet.
 
-### 🎬 Movie Tracking
+- [**Plex Media Export**](https://github.com/PrimePoobah/PlexScripts/tree/main/Plex%20Media%20Export%20to%20Excel): The Swiss Army Chainsaw of Excel reports. Movies AND TV shows. Together. Harmony.
+- [**Movie Exporter**](https://github.com/PrimePoobah/PlexScripts/tree/main/Plex%20Movie%20List%20Export%20to%20Excel): Just movies. Just the facts. Just justice.
+- [**TV Show Audit Tool**](https://github.com/PrimePoobah/PlexScripts/tree/main/Plex%20TV%20Show%20Export%20to%20Excel): Completion stats, TVMaze brainpower, and a color-coded guilt trip for your binge-watching sins.
 
-- Complete inventory of your movie library
-- Resolution-based highlighting (4K, 1080p, 720p, SD)
-- Technical details (container format, file path)
-- Content metadata (release year, studio, rating)
-- Customizable export fields via .env configuration
-- Alphabetical sorting for easy reference
+---
 
-### 📺 TV Show Tracking
+## 🧠 Features That Punch Mediocrity in the Face
 
-- Series completion overview with TVMaze verification
-- Season-by-season episode counting
+### 🎬 For Movie Maniacs (Or: "How Many Times Did I Buy The Same Movie?")
+- Complete inventory because you probably forgot you own Green Lantern (we don't talk about Green Lantern)
+- Resolution-based highlighting that'll shame you for your 480p collection
+- Technical details for the nerds (you know who you are)
+- Content metadata so you can remember why you bought Cats (spoiler: there's no good reason)
+- Customizable fields via .env because I'm not your mom – configure it yourself
+- Alphabetical sorting because chaos is only fun in combat
+- It's like IMDB got Excel-itis.
+
+### 📺 TV Show Tracking (Or: "The 'Do I Actually Have All the Episodes?'")
+- Finds missing episodes you didn't know you were avoiding.
+- Series completion tracking with TVMaze integration (because manual counting is for psychopaths)
+- Season-by-season breakdown that's more detailed than my therapy sessions
 - Color-coded status indicators:
-  - 🟩 **Green**: Complete series/seasons
-  - 🟥 **Red**: Incomplete series/seasons
-  - ⬛ **Gray**: Non-existent seasons
-- Missing episode identification
-- Customizable TV show metadata fields
+  - 🟩 Green: Complete (like my collection of regrets)
+  - 🟥 Red: Incomplete (like my understanding of healthy relationships)
+  - ⬛ Gray: This never existed (Like my social life)
 
-### 🛠️ Advanced Features
+### 💥 Advanced Features (Because We're Fancy Like That)
+- Multi-threaded processing (faster than my mouth in a fight)
+- Environment variables from .env files (because hardcoding is what killed the dinosaurs)
+- Memory-optimized Excel generation (won't crash your potato computer)
+- Cached TVMaze lookups (because API rate limits are the real enemy)
+- Progress reporting more detailed than my therapy notes
+- Handles errors like an emotionally mature adult. (Not me.)
+- Sortable Excel tables (organization is my middle name... actually it's Winston, but whatever)
 
-- Multi-threaded processing for improved performance
-- Environment variables from .env file for simple configuration
-- Memory-optimized Excel generation for large libraries
-- Cached TVMaze lookups to reduce API calls
-- Detailed progress reporting during execution
-- Error handling for missing or corrupt media files
-- Sortable and filterable Excel tables
-- Customizable output directory
+---
 
-## 🚀 Getting Started
+## 🚀 Installation Instructions (or “How to Not Screw It Up”)
 
-### System Requirements
+### 🧰 Requirements
+- Python 3.6+
+- Plex server (not imaginary)
+- Plex token (like a golden key but nerdier)
+- Internet (for TVMaze, not for my OnlyFans)
 
-- Python 3.6 or higher
-- Access to a Plex Media Server
-- Plex authentication token
-- Internet connection (for TVMaze integration)
-
-### Installation
-
-1. Clone the repository:
+### 🧙‍♂️ Summon the Tools
 
 ```bash
 git clone https://github.com/PrimePoobah/plex-media-export.git
 cd plex-media-export
-```
-
-2. Install required packages:
-
-```bash
 pip install plexapi pandas openpyxl requests python-dotenv
-```
-
-3. Create and configure your .env file:
-
-```bash
-# Copy the example .env file
 cp .env.example .env
-# Edit with your preferred text editor
-nano .env
+nano .env  # Or edit in Notepad if you're stuck in 2005
 ```
 
-4. Configure your Plex settings in the .env file:
-
+**Configure your settings (this is where the magic happens):**
 ```
-PLEX_URL="http://{Plex_IP_or_URL}:32400"
-PLEX_TOKEN="{YourPlexToken}"
-PLEX_EXPORT_DIR="{OptionalCustomExportPath}"
+PLEX_URL="http://{Your_Plex_IP}:32400"
+PLEX_TOKEN="{YourSuperSecretPlexToken}"
+PLEX_EXPORT_DIR="{WhereYouWantYourFiles}"
 PLEX_MOVIE_EXPORT_FIELDS="Title,Year,Studio,ContentRating,Video Resolution,File Path,Container,Duration (min)"
 PLEX_SHOW_EXPORT_FIELDS="Title,Year,Studio,ContentRating"
 ```
 
-### Finding Your Plex Token
+### 🎟️ PLEX_TOKEN Hunt
+1. Log into Plex web interface (you know, that thing you use to procrastinate)
+2. Play any media file (I suggest *Deadpool*)
+3. Click the three dots (⋮) because apparently we're all ancient Greeks now
+4. Select "Get Info" (getting philosophical, are we?)
+5. Click "View XML" (now we're speaking in tongues)
+6. Find "X-Plex-Token" in the URL (congratulations, you're now a hacker)
 
-1. Log into the Plex web interface
-2. Play any media file
-3. Click the three dots menu (⋮)
-4. Select "Get Info"
-5. Click "View XML"
-6. Look for "X-Plex-Token" in the URL
+---
 
-## 🧰 Script Details
+## 🎯 Running the Scripts
 
-### PlexMediaExport.py
+### 1️⃣ The Big Kahuna
 
-The most comprehensive script that combines movie and TV show tracking in a single Excel workbook with extensive customization options via .env configuration.
+This script does everything. It's like the Swiss Army knife of Plex tools, if Swiss Army knives could judge your media collection.
 
 ```bash
 python PlexMediaExport.py
 ```
+Output: `PlexMediaExport_YYYYMMDD_HHMMSS.xlsx`
+*Because timestamps are like signatures – they prove you were here*
+Contains both:
+- **Movies** tab
+- **TV Shows** tab (with Maze magic)
 
-Output: `PlexMediaExport_YYYYMMDD_HHMMSS.xlsx` with one worksheet per library section:
+### 2️⃣ Just the Movies, Ma’am
 
-- **Movies**: Complete movie library with resolution highlighting
-- **TV Shows**: Series completion status with TVMaze verification
-
-### plex_movie_export.py
-
-A focused script for movie library cataloging.
+For when you only care about movies. It's focused, dedicated, and probably has commitment issues.
 
 ```bash
 python plex_movie_export.py
 ```
+Output: `plex_movies.xlsx`
+*Simple name for simple people*
 
-Output: `plex_movies.xlsx` containing your complete movie library details.
+### 3️⃣ Show Me the TV
 
-### plex_tv_shows.py
-
-A specialized script for TV show completion tracking.
+This one tracks TV show completion like a particularly obsessive stalker.
 
 ```bash
 python plex_tv_shows.py
 ```
+Output: `plex_tv_shows_YYYYMMDD.xlsx`
 
-Output: `plex_tv_shows_YYYYMMDD.xlsx` showing series and season completion status.
+*With a timestamp because even TV shows deserve to know when they were cataloged*
 
-## 📊 Excel Report Details
+---
 
-### Movies Worksheet Format
+## 📊 Spreadsheet Glory Details
 
-| Column              | Description               |
-| ------------------- | ------------------------- |
-| Title               | Movie name                |
-| Video Resolution    | Quality (4K, 1080p, etc.) |
-| Year                | Release year              |
-| Studio              | Production studio         |
-| ContentRating       | Rating (PG, R, etc.)      |
-| File                | Full file path            |
-| Container           | File format               |
-| Duration (min)      | Movie length in minutes   |
-| _Additional fields_ | Customizable via .env     |
+### Movies Sheet
 
-### TV Shows Worksheet Format
+| Column       | Description         |
+|--------------|---------------------|
+| Title        | Movie name          |
+| Resolution   | 4K? Fancy. SD? Eww. |
+| Year         | Release year        |
+| Studio       | Studio magic        |
+| File         | Full path to shame  |
+| Container    | MKV? MP4? VHS?      |
+| Duration     | Minutes of regret   |
+| Etc.         | You decide via `.env` |
 
-| Column              | Description              |
-| ------------------- | ------------------------ |
-| Show Title          | Series name              |
-| Complete Series     | Overall completion ratio |
-| Season X            | Episodes present/total   |
-| _Additional fields_ | Customizable via .env    |
+### TV Shows Sheet
 
-## 🎨 Color Coding
+| Column        | Description                 |
+|---------------|-----------------------------|
+| Title         | Show name                   |
+| Complete      | Yes, no, or… yikes          |
+| Season X      | Episodes present/total      |
+
+---
+
+## 🎨 Color Legend (Read 'em and Weep)
 
 ### Movies
+- 🟩 4K/UHD = 4K content (oh shiny!)
+- 🟨 720p or lower (we don't judge... much)
+- ⬜ 1080p (the standard bearer of mediocrity)
 
-- 🟩 **Light Green**: 4K/UHD content
-- 🟨 **Yellow**: 720p or lower resolution
-- ⬜ **No Color**: 1080p content (standard)
+### Shows
+- 🟩 Season done. Victory lap.
+- 🟥 You slacked off.
+- ⬛ Didn’t even exist. Move on.
 
-### TV Shows
+---
 
-- 🟩 **Green**: Complete series/season
-- 🟥 **Red**: Incomplete series/season
-- ⬛ **Gray**: Non-existent season
+## 🔧 Customization (Make It Your Own, Like A Bad Tattoo)
 
-## 🔧 Customization
+Edit `.env` like a wizard.
 
-The script supports extensive customization through the .env file:
-
-### Available Movie Fields
-
+### 🎥 Movie Fields (Choose your destiny)
 ```
-Title, Year, Studio, ContentRating, Video Resolution,
-Bitrate (kbps), File Path, Container, Duration (min),
-AddedAt, LastViewedAt, OriginallyAvailableAt, Summary, Tagline,
-AudienceRating, Rating, Collections, Genres, Labels,
-AspectRatio, AudioChannels, AudioCodec, VideoCodec, VideoFrameRate,
-Height, Width, ViewCount, SkipCount
+Title, Year, Studio, Rating, Bitrate, Codec, Genres, Labels...
 ```
 
-### Available TV Show Fields
-
+### 📺 TV Show Fields (Choose your own binge-venture)
 ```
-Title, Year, Studio, ContentRating, Summary, Tagline,
-AddedAt, LastViewedAt, OriginallyAvailableAt,
-AudienceRating, Rating, Collections, Genres, Labels,
-ViewCount, SkipCount
+Title, Seasons, Ratings, ViewCount, Summary, Tagline...
 ```
 
-## 📝 Requirements
+---
+
+## 🤓 What You Need to Install (Dependencies, Not Issues)
 
 ```
 plexapi>=4.15.4
@@ -215,70 +199,90 @@ requests>=2.26.0
 python-dotenv>=0.19.0
 ```
 
-## 🤝 Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+## 🧠 Contributing (Join the Madness)
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+Want to help make this thing better? Great! Here's how to not screw it up:
 
-## 📄 License
+1. Fork it (like a code buffet)
+2. Branch it (`git checkout -b feature/MyAwesomeFeature`)
+3. Commit it (`git commit -m 'Add something that doesn't break everything'`)
+4. Push it (`git push origin feature/MyAwesomeFeature`)
+5. Pull Request it (and pray I'm in a good mood)
 
-This project is licensed under the GNU Affero General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+Bonus points for witty commit messages.
 
-## 🙏 Acknowledgments
+---
 
-- [python-plexapi](https://github.com/pkkid/python-plexapi) for the Plex API integration
-- [TVMaze API](https://www.tvmaze.com/api) for TV show database information
-- [OpenPyXL](https://openpyxl.readthedocs.io/) for Excel file generation
-- [Pandas](https://pandas.pydata.org/) for data processing
-- [Plex](https://www.plex.tv/) for their amazing media server platform
-- [nledenyi](https://github.com/nledenyi) for contributions to the project
-- [python-dotenv](https://github.com/theskumar/python-dotenv) for environment variable management
+## 🕊️  License (The Legal Mumbo Jumbo)
 
-## 📮 Contact
+This thing is licensed under the **GNU AGPL v3.0**  
+It’s free to use, but don’t be a villain. [LICENSE](LICENSE)
 
-PrimePoobah - [@PrimePoobah](https://github.com/PrimePoobah)
+---
 
-Project Link: [https://github.com/PrimePoobah/plex-media-export](https://github.com/PrimePoobah/plex-media-export)
+## 👏 Credit Where It’s Due (Props to the Real MVPs)
 
-## ❓ FAQ
 
-### Q: Can I run these scripts on a headless server?
+- [python-plexapi](https://github.com/pkkid/python-plexapi) For making Plex integration not suck
+- [TVMaze API](https://www.tvmaze.com/api) For knowing more about TV than my mother
+- [OpenPyXL](https://openpyxl.readthedocs.io/) For making Excel files that don't crash
+- [Pandas](https://pandas.pydata.org/) For data processing that's smarter than me
+- [Plex](https://www.plex.tv/) For existing so we can hoard media legally-ish
+- [nledenyi](https://github.com/nledenyi) For contributing and not running away screaming
+- [python-dotenv](https://github.com/theskumar/python-dotenv) For managing environment variables better than I manage my life
+- And you... yeah you, for actually reading this far
 
-A: Yes, all scripts are command-line based and don't require a GUI.
+---
 
-### Q: Will these scripts modify my Plex library?
+## 📨 Contact the Creator (Or Don't, I'm Not Your Boss)
 
-A: No, they only read data from your Plex server and don't make any changes.
+Want to high-five the mastermind?
 
-### Q: How often should I run these exports?
+**PrimePoobah** — [GitHub](https://github.com/PrimePoobah)  
+**Project Link**: [plex-media-export](https://github.com/PrimePoobah/plex-media-export)
 
-A: It depends on how frequently you add content. Weekly or monthly is typical.
+---
 
-### Q: Can I customize the Excel formatting?
+## ❓FAQ (Freakin’ Awesome Questions)
 
-A: Yes, you can modify the styling variables in the scripts to customize colors and formats.
+### Q: Will this work on a headless server?
+**A:** Yes, unlike me, these scripts don't need a pretty face to function.
 
-### Q: Can I choose which fields to export for movies and TV shows?
+### Q: Will this mess up my Plex library?
+**A:** Nope, it's read-only. Less invasive than a wellness check.
 
-A: Yes, you can specify the exact fields you want in your .env file using the PLEX_MOVIE_EXPORT_FIELDS and PLEX_SHOW_EXPORT_FIELDS variables.
+### Q: How often should I run these?
+**A:** Depends how often you add stuff. Weekly if you're obsessive, monthly if you have a life.
 
-### Q: Why do some shows not appear in the TV Show report?
+### Q: Can I customize the colors?
+**A:** Sure, dive into the code and make it fabulous. Rainbow everything if you want.
 
-A: This usually happens when a show name doesn't match between Plex and TVMaze.
+### Q: Why don't some shows appear?
+**A:** Because Plex and TVMaze sometimes disagree more than a married couple on vacation.
 
-### Q: Where are the export files saved?
+### Q: Where do the files go?
+**A:** Same folder as the script, unless you specify otherwise. It's not hide-and-seek.
 
-A: By default, they're saved in the same directory as the script. You can specify a custom directory with the PLEX_EXPORT_DIR variable in your .env file.
+---
 
-## ❤️ Support
+## ❤️ Show the Love
 
-If you find these tools useful, please consider:
+If this helped you organize your digital hoarding:
 
-- Giving this project a ⭐️ on GitHub
-- Sharing it with other Plex users
-- Contributing improvements back to the project
+- ⭐️ Star this repo (make me feel special)
+- Share it with other media addicts
+- Contribute improvements (or just fix my terrible jokes)
+
+  ---
+
+Now go! Export that media like the spreadsheet superhero you were born to be.
+
+*P.S. - If you're reading this far, you either really need this tool or you have way too much time on your hands. Either way, welcome to the club.*
+
+*P.P.S. - No, I won't help you organize your actual physical media. That's what fire is for.*
+
+**[END OF TRANSMISSION]**
+
+*This README was written while consuming an ungodly amount of chimichangas and watching my own movies on repeat. Any resemblance to actual documentation is purely coincidental.*
