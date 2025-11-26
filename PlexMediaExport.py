@@ -20,7 +20,7 @@
 
 # Standard library imports
 from datetime import datetime  # For timestamping the output file and formatting dates
-from typing import Dict, List, Optional, Union, Tuple # For type hinting, improving code readability and maintainability
+from typing import Dict, List, Optional, Union, Tuple, Callable, Any, TypedDict # For type hinting, improving code readability and maintainability
 import sys  # For system-specific parameters and functions, like exiting the script
 from concurrent.futures import ThreadPoolExecutor  # For parallel processing of tasks (like fetching movie details)
 from functools import lru_cache, wraps  # For caching results and decorator utilities
@@ -40,6 +40,44 @@ from openpyxl.utils import get_column_letter  # Utility to convert column index 
 from openpyxl.worksheet.table import Table, TableStyleInfo  # For creating formatted tables within Excel worksheets
 from requests import Session  # For making HTTP requests with connection pooling and session persistence
 import requests  # For requests.exceptions, to catch specific HTTP request errors
+
+# --- Type Definitions ---
+# TypedDict definitions for structured data throughout the script (Python 3.8+)
+
+class TVMazeSeasonInfo(TypedDict):
+    """Structure for TVMaze season information."""
+    total_episodes: int
+
+class TVMazeShowInfo(TypedDict):
+    """Structure for TVMaze show information."""
+    total_seasons: int
+    seasons: Dict[int, TVMazeSeasonInfo]
+
+class PlexSeasonData(TypedDict):
+    """Structure for Plex season data."""
+    episodes_in_plex: int
+    season_number: int
+
+class CacheEntry(TypedDict):
+    """Structure for persistent cache entries."""
+    timestamp: datetime
+    data: Optional[TVMazeShowInfo]
+
+class CacheFile(TypedDict):
+    """Structure for the persistent cache file."""
+    version: str
+    entries: Dict[str, CacheEntry]
+    saved_at: datetime
+
+class ShowData(TypedDict):
+    """Structure for processed TV show data."""
+    seasons_in_plex: Dict[int, PlexSeasonData]
+    tvmaze_info: Optional[TVMazeShowInfo]
+
+class ValidationResult(TypedDict):
+    """Structure for environment validation results."""
+    errors: List[str]
+    warnings: List[str]
 
 # --- Load Environment Variables ---
 # This function call loads variables defined in a .env file in the script's directory (or parent directories)
@@ -185,10 +223,15 @@ def setup_logging() -> logging.Logger:
     return logger
 
 # --- Environment Validation ---
-def validate_environment():
-    """Validate required environment variables and configuration."""
-    errors = []
-    warnings = []
+def validate_environment() -> Tuple[List[str], List[str]]:
+    """
+    Validate required environment variables and configuration.
+
+    Returns:
+        Tuple[List[str], List[str]]: A tuple of (errors, warnings) as lists of strings
+    """
+    errors: List[str] = []
+    warnings: List[str] = []
 
     # Validate PLEX_URL
     if not PLEX_URL:
@@ -216,7 +259,7 @@ def validate_environment():
     return errors, warnings
 
 
-def retry_on_failure(max_retries=TVMAZE_MAX_RETRIES, base_delay=TVMAZE_RETRY_DELAY, backoff_factor=2.0):
+def retry_on_failure(max_retries: int = TVMAZE_MAX_RETRIES, base_delay: float = TVMAZE_RETRY_DELAY, backoff_factor: float = 2.0) -> Callable:
     """
     Decorator to retry function on failure with exponential backoff.
 
@@ -226,11 +269,11 @@ def retry_on_failure(max_retries=TVMAZE_MAX_RETRIES, base_delay=TVMAZE_RETRY_DEL
         backoff_factor: Multiplier for delay after each retry (default 2.0)
 
     Returns:
-        Decorated function that retries on requests.exceptions.RequestException
+        Callable: Decorated function that retries on requests.exceptions.RequestException
     """
-    def decorator(func):
+    def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             delay = base_delay
             for attempt in range(max_retries + 1):
                 try:
@@ -254,15 +297,15 @@ def retry_on_failure(max_retries=TVMAZE_MAX_RETRIES, base_delay=TVMAZE_RETRY_DEL
 
 # --- Persistent Cache Management ---
 # Global variable to hold the persistent cache
-_persistent_tvmaze_cache = {}
+_persistent_tvmaze_cache: Dict[str, CacheEntry] = {}
 
 
-def load_tvmaze_cache() -> Dict:
+def load_tvmaze_cache() -> Dict[str, CacheEntry]:
     """
     Loads the TVMaze cache from disk if it exists and is valid.
 
     Returns:
-        Dict: The loaded cache dictionary, or an empty dict if no valid cache exists.
+        Dict[str, CacheEntry]: The loaded cache dictionary, or an empty dict if no valid cache exists.
     """
     global _persistent_tvmaze_cache
 
@@ -272,7 +315,7 @@ def load_tvmaze_cache() -> Dict:
 
     try:
         with open(TVMAZE_CACHE_FILE, 'rb') as f:
-            cache_data = pickle.load(f)
+            cache_data: Any = pickle.load(f)
 
         # Validate cache structure
         if not isinstance(cache_data, dict) or 'version' not in cache_data or 'entries' not in cache_data:
@@ -281,8 +324,8 @@ def load_tvmaze_cache() -> Dict:
 
         # Clean expired entries
         now = datetime.now()
-        valid_entries = {}
-        expired_count = 0
+        valid_entries: Dict[str, CacheEntry] = {}
+        expired_count: int = 0
 
         for key, entry in cache_data['entries'].items():
             if 'timestamp' in entry and 'data' in entry:
@@ -300,22 +343,21 @@ def load_tvmaze_cache() -> Dict:
         return {}
 
 
-def save_tvmaze_cache():
+def save_tvmaze_cache() -> None:
     """
     Saves the current TVMaze cache to disk.
     """
     global _persistent_tvmaze_cache
 
     try:
-        cache_data = {
+        cache_data: CacheFile = {
             'version': '1.0',
             'entries': _persistent_tvmaze_cache,
             'saved_at': datetime.now()
         }
 
-        # Ensure directory exists
-        cache_dir = os.path.dirname(TVMAZE_CACHE_FILE)
-        if cache_dir and not os.path.exists(cache_dir):
+        # Ensure directory exists (using walrus operator for Python 3.8+)
+        if (cache_dir := os.path.dirname(TVMAZE_CACHE_FILE)) and not os.path.exists(cache_dir):
             os.makedirs(cache_dir, exist_ok=True)
 
         with open(TVMAZE_CACHE_FILE, 'wb') as f:
@@ -327,7 +369,7 @@ def save_tvmaze_cache():
         logging.error(f"Error saving TVMaze cache: {e}")
 
 
-def get_from_cache(key: str) -> Optional[Dict]:
+def get_from_cache(key: str) -> Optional[TVMazeShowInfo]:
     """
     Retrieves an entry from the persistent cache if it exists and is valid.
 
@@ -335,14 +377,14 @@ def get_from_cache(key: str) -> Optional[Dict]:
         key: The cache key (usually search term or IMDB ID)
 
     Returns:
-        Optional[Dict]: The cached data, or None if not found or expired
+        Optional[TVMazeShowInfo]: The cached data, or None if not found or expired
     """
     global _persistent_tvmaze_cache
 
     if key not in _persistent_tvmaze_cache:
         return None
 
-    entry = _persistent_tvmaze_cache[key]
+    entry: CacheEntry = _persistent_tvmaze_cache[key]
     age_days = (datetime.now() - entry['timestamp']).days
 
     if age_days > TVMAZE_CACHE_MAX_AGE_DAYS:
@@ -353,7 +395,7 @@ def get_from_cache(key: str) -> Optional[Dict]:
     return entry['data']
 
 
-def add_to_cache(key: str, data: Dict):
+def add_to_cache(key: str, data: TVMazeShowInfo) -> None:
     """
     Adds an entry to the persistent cache.
 
@@ -456,41 +498,36 @@ def connect_to_plex() -> Optional[PlexServer]:
         return None
 
 @retry_on_failure() # Decorator to retry on network failures with exponential backoff
-def _fetch_tvmaze_show_info_from_api(search_term: str, is_imdb_id: bool = False) -> Optional[Dict]:
+def _fetch_tvmaze_show_info_from_api(search_term: str, is_imdb_id: bool = False) -> Optional[TVMazeShowInfo]:
     """
     Internal function that fetches TV show information directly from the TVMaze API.
     This is called only when data is not found in persistent or in-memory cache.
 
     Args:
-        search_term (str): The name of the TV show or its IMDB ID.
-        is_imdb_id (bool): True if search_term is an IMDB ID, False if it's a show title.
+        search_term: The name of the TV show or its IMDB ID.
+        is_imdb_id: True if search_term is an IMDB ID, False if it's a show title.
 
     Returns:
-        Optional[Dict]: A dictionary containing total seasons and episode counts per season,
-                        or None if the show is not found or an error occurs.
+        Optional[TVMazeShowInfo]: A dictionary containing total seasons and episode counts per season,
+                                  or None if the show is not found or an error occurs.
     """
     try:
-        show_id = None
-        params = {}
-        api_url = "" # Initialize api_url
-
         # Determine the TVMaze API endpoint and parameters based on whether searching by IMDB ID or title.
-        if is_imdb_id:
-            api_url, params = f"{TVMAZE_API}/lookup/shows", {'imdb': search_term}
-        else:
-            api_url, params = f"{TVMAZE_API}/search/shows", {'q': search_term}
+        api_url, params = ((f"{TVMAZE_API}/lookup/shows", {'imdb': search_term})
+                           if is_imdb_id
+                           else (f"{TVMAZE_API}/search/shows", {'q': search_term}))
 
         # Make the GET request to TVMaze API using the global session.
         response = session.get(api_url, params=params, timeout=TVMAZE_REQUEST_TIMEOUT)
         response.raise_for_status() # Raise an HTTPError for bad status codes (4xx or 5xx)
-        
+
         json_response = response.json() # Parse the JSON response
 
-        # Extract the show ID from the response.
-        if is_imdb_id: # /lookup/shows returns a single show object or null
-            if json_response: # Check if response is not null
-                show_id = json_response.get('id')
-        elif json_response and isinstance(json_response, list) and len(json_response) > 0: # /search/shows returns a list
+        # Extract the show ID from the response (using walrus operator for Python 3.8+)
+        show_id = None
+        if is_imdb_id and json_response: # /lookup/shows returns a single show object or null
+            show_id = json_response.get('id')
+        elif json_response and isinstance(json_response, list) and json_response: # /search/shows returns a list
             # Assume the first result is the most relevant one.
             show_id = json_response[0].get('show', {}).get('id')
 
@@ -529,7 +566,7 @@ def _fetch_tvmaze_show_info_from_api(search_term: str, is_imdb_id: bool = False)
     return None # Return None if any error occurs
 
 
-def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional[Dict]:
+def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional[TVMazeShowInfo]:
     """
     Fetches TV show information with persistent caching support.
 
@@ -537,12 +574,12 @@ def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional
     Results from the API are automatically added to the persistent cache.
 
     Args:
-        search_term (str): The name of the TV show or its IMDB ID.
-        is_imdb_id (bool): True if search_term is an IMDB ID, False if it's a show title.
+        search_term: The name of the TV show or its IMDB ID.
+        is_imdb_id: True if search_term is an IMDB ID, False if it's a show title.
 
     Returns:
-        Optional[Dict]: A dictionary containing total seasons and episode counts per season,
-                        or None if the show is not found or an error occurs.
+        Optional[TVMazeShowInfo]: A dictionary containing total seasons and episode counts per season,
+                                  or None if the show is not found or an error occurs.
     """
     # Create cache key (prefix with type for clarity)
     cache_key = f"imdb:{search_term}" if is_imdb_id else f"title:{search_term}"
@@ -564,7 +601,7 @@ def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional
     return result
 
 
-def format_plex_datetime(dt_obj) -> str:
+def format_plex_datetime(dt_obj: Optional[Union[datetime, pd.Timestamp, Any]]) -> str:
     """
     Formats a datetime object (often from Plex attributes) into an ISO 8601 string.
     Handles cases where the datetime object might be None.
@@ -583,7 +620,7 @@ def format_plex_datetime(dt_obj) -> str:
     except AttributeError: # If it's not a datetime object but something else that doesn't have isoformat
         return str(dt_obj)
 
-def format_plex_list(plex_list_attr) -> str:
+def format_plex_list(plex_list_attr: Optional[List[Any]]) -> str:
     """
     Formats a list of Plex Tag objects (e.g., genres, collections, labels)
     into a comma-separated string of their 'tag' or 'title' attributes.
@@ -613,10 +650,13 @@ def format_plex_list(plex_list_attr) -> str:
 # Dictionary-based approach for field extraction, eliminating long if-elif chains.
 # Each field maps to a callable that extracts the value from the Plex object.
 
-def _get_movie_field_processors():
+def _get_movie_field_processors() -> Dict[str, Callable[[Any, Any, Any], Union[str, int, float]]]:
     """
     Returns a dictionary of field processors for movie fields.
     Each processor is a callable that takes (movie, media, parts) and returns the field value.
+
+    Returns:
+        Dict[str, Callable]: A mapping of field names to processor functions
     """
     return {
         'Title': lambda m, _, __: getattr(m, 'title', 'N/A'),
@@ -651,10 +691,13 @@ def _get_movie_field_processors():
     }
 
 
-def _get_show_field_processors():
+def _get_show_field_processors() -> Dict[str, Callable[[Any], Union[str, int, float]]]:
     """
     Returns a dictionary of field processors for TV show fields.
     Each processor is a callable that takes (show_obj) and returns the field value.
+
+    Returns:
+        Dict[str, Callable]: A mapping of field names to processor functions
     """
     return {
         'Title': lambda s: getattr(s, 'title', 'N/A'),
@@ -676,7 +719,7 @@ def _get_show_field_processors():
     }
 
 
-def process_movie(movie) -> Dict:
+def process_movie(movie: Any) -> Dict[str, Union[str, int, float]]:
     """
     Processes a single Plex movie object and extracts data for the fields
     specified in SELECTED_MOVIE_FIELDS using a dictionary-based approach.
@@ -685,7 +728,7 @@ def process_movie(movie) -> Dict:
         movie: A Plex movie object.
 
     Returns:
-        Dict: A dictionary containing the extracted movie data.
+        Dict[str, Union[str, int, float]]: A dictionary containing the extracted movie data.
     """
     movie_data = {}
 
@@ -723,15 +766,15 @@ def process_movie(movie) -> Dict:
 
     return movie_data
 
-def get_movie_details(movies: List) -> List[Dict]:
+def get_movie_details(movies: List[Any]) -> List[Dict[str, Union[str, int, float]]]:
     """
     Retrieves details for a list of Plex movie objects in parallel using a ThreadPoolExecutor.
 
     Args:
-        movies (List): A list of Plex movie objects.
+        movies: A list of Plex movie objects.
 
     Returns:
-        List[Dict]: A list of dictionaries, where each dictionary contains details for a movie.
+        List[Dict[str, Union[str, int, float]]]: A list of dictionaries, each containing movie details.
     """
     # Determine a reasonable number of worker threads.
     num_workers = min(MAX_WORKER_THREADS, (os.cpu_count() or 1) + WORKER_THREAD_MULTIPLIER)
@@ -741,7 +784,7 @@ def get_movie_details(movies: List) -> List[Dict]:
         # filter(None, ...) removes any None results if process_movie were to return None (it currently doesn't).
         return list(filter(None, executor.map(process_movie, movies)))
 
-def process_show_metadata(show_obj) -> Dict:
+def process_show_metadata(show_obj: Any) -> Dict[str, Union[str, int, float]]:
     """
     Processes a single Plex TV show object and extracts base metadata for the fields
     specified in SELECTED_SHOW_FIELDS using a dictionary-based approach.
@@ -750,7 +793,7 @@ def process_show_metadata(show_obj) -> Dict:
         show_obj: A Plex TV show object.
 
     Returns:
-        Dict: A dictionary containing the extracted TV show metadata.
+        Dict[str, Union[str, int, float]]: A dictionary containing the extracted TV show metadata.
     """
     show_metadata = {}
 
@@ -774,7 +817,7 @@ def process_show_metadata(show_obj) -> Dict:
 
     return show_metadata
 
-def process_single_show(show_obj) -> Dict:
+def process_single_show(show_obj: Any) -> Dict[str, Any]:
     """
     Processes a single TV show to retrieve its metadata, TVMaze info, and Plex season data.
 
@@ -784,7 +827,7 @@ def process_single_show(show_obj) -> Dict:
         show_obj: A Plex TV show object.
 
     Returns:
-        Dict: A dictionary containing show metadata, Plex season data, TVMaze info, and max seasons.
+        Dict[str, Any]: A dictionary containing show metadata, Plex season data, TVMaze info, and max seasons.
     """
     try:
         logger.info(f"Processing TV Show: {show_obj.title}")
@@ -792,26 +835,21 @@ def process_single_show(show_obj) -> Dict:
         # Get the base metadata for the show using the selected fields.
         show_metadata = process_show_metadata(show_obj)
 
-        # Attempt to find IMDB ID for TVMaze lookup.
-        imdb_id_full = next((guid.id for guid in show_obj.guids if guid.id.startswith('imdb://')), None)
-        imdb_id = imdb_id_full.split('imdb://')[-1] if imdb_id_full else None
+        # Attempt to find IMDB ID for TVMaze lookup (using walrus operator for Python 3.8+)
+        imdb_id = (imdb_id_full.split('imdb://')[-1]
+                   if (imdb_id_full := next((guid.id for guid in show_obj.guids if guid.id.startswith('imdb://')), None))
+                   else None)
 
         # Optimized TVMaze lookup with fallback logic
         tvmaze_info = None
-        if imdb_id:  # Try TVMaze lookup with IMDB ID first (most reliable).
-            logger.debug(f"  Attempting TVMaze lookup by IMDB ID: {imdb_id}")
-            tvmaze_info = get_tvmaze_show_info(imdb_id, is_imdb_id=True)
-            if tvmaze_info:
-                logger.debug(f"  TVMaze lookup successful via IMDB ID")
+        if imdb_id and (tvmaze_info := get_tvmaze_show_info(imdb_id, is_imdb_id=True)):
+            logger.debug(f"  TVMaze lookup successful via IMDB ID: {imdb_id}")
 
-        # Fallback to title search only if IMDB lookup failed and we have a valid title
-        if not tvmaze_info:
-            search_title = show_obj.originalTitle if show_obj.originalTitle else show_obj.title
-            if search_title and search_title.strip():  # Only search if we have a non-empty title
-                logger.debug(f"  Attempting TVMaze lookup by title: {search_title}")
-                tvmaze_info = get_tvmaze_show_info(search_title)
-                if tvmaze_info:
-                    logger.debug(f"  TVMaze lookup successful via title search")
+        # Fallback to title search only if IMDB lookup failed and we have a valid title (using walrus operator)
+        if not tvmaze_info and (search_title := show_obj.originalTitle or show_obj.title) and search_title.strip():
+            logger.debug(f"  Attempting TVMaze lookup by title: {search_title}")
+            if (tvmaze_info := get_tvmaze_show_info(search_title)):
+                logger.debug(f"  TVMaze lookup successful via title search")
 
         # Track max seasons for this show
         show_max_seasons = 0
@@ -857,7 +895,7 @@ def process_single_show(show_obj) -> Dict:
         }
 
 
-def get_show_details(shows: List) -> Tuple[List[Dict], int]:
+def get_show_details(shows: List[Any]) -> Tuple[List[Dict[str, Any]], int]:
     """
     Retrieves detailed information for a list of TV shows using parallel processing.
 
@@ -865,10 +903,10 @@ def get_show_details(shows: List) -> Tuple[List[Dict], int]:
     significantly improving performance for large libraries.
 
     Args:
-        shows (List): A list of Plex TV show objects.
+        shows: A list of Plex TV show objects.
 
     Returns:
-        Tuple[List[Dict], int]: A tuple containing:
+        Tuple[List[Dict[str, Any]], int]: A tuple containing:
             - A list of dictionaries, each with details for a TV show.
             - An integer representing the maximum number of seasons found across all shows.
     """
@@ -896,14 +934,14 @@ def get_show_details(shows: List) -> Tuple[List[Dict], int]:
 
     return processed_shows_data, max_seasons_overall
 
-def apply_cell_styling(cell, is_header: bool = False, alignment_key: str = 'center', fill_pattern=None):
+def apply_cell_styling(cell: Any, is_header: bool = False, alignment_key: str = 'center', fill_pattern: Optional[PatternFill] = None) -> None:
     """
     Applies predefined border, alignment, font (if header), and fill styles to an Excel cell.
 
     Args:
         cell: The openpyxl cell object to style.
-        is_header (bool): True if the cell is a header cell, False otherwise.
-        alignment_key (str): The key for the desired alignment style from STYLES['alignments'].
+        is_header: True if the cell is a header cell, False otherwise.
+        alignment_key: The key for the desired alignment style from STYLES['alignments'].
         fill_pattern: The PatternFill object to apply as background, or None for no fill.
     """
     # Apply border style (different for header vs. data cells).
@@ -918,19 +956,19 @@ def apply_cell_styling(cell, is_header: bool = False, alignment_key: str = 'cent
     if fill_pattern:
         cell.fill = fill_pattern
 
-def create_table(ws, table_name: str, data_range: str, style_name: str = EXCEL_TABLE_STYLE):
+def create_table(ws: Any, table_name: str, data_range: str, style_name: str = EXCEL_TABLE_STYLE) -> Optional[Table]:
     """
     Creates an Excel table on the given worksheet with specified name, range, and style.
     Ensures table names are sanitized (no spaces) and enables row stripes by default.
 
     Args:
         ws: The openpyxl worksheet object.
-        table_name (str): The desired name for the table (will be sanitized).
-        data_range (str): The cell range for the table (e.g., "A1:G100").
-        style_name (str): The name of the built-in Excel table style to apply.
+        table_name: The desired name for the table (will be sanitized).
+        data_range: The cell range for the table (e.g., "A1:G100").
+        style_name: The name of the built-in Excel table style to apply.
 
     Returns:
-        Table: The created openpyxl Table object, or None if an error occurs.
+        Optional[Table]: The created openpyxl Table object, or None if an error occurs.
     """
     # Sanitize table name: Excel table names cannot contain spaces or certain characters,
     # and must not start with a number.
@@ -955,17 +993,16 @@ def create_table(ws, table_name: str, data_range: str, style_name: str = EXCEL_T
         logger.error(f"Error creating table '{sanitized_table_name}': {e}")
         return None
 
-def auto_adjust_columns(ws, min_width: int = COLUMN_MIN_WIDTH, max_width: int = COLUMN_MAX_WIDTH, wrap_text_columns: List[str] = None):
+def auto_adjust_columns(ws: Any, min_width: int = COLUMN_MIN_WIDTH, max_width: int = COLUMN_MAX_WIDTH, wrap_text_columns: Optional[List[str]] = None) -> None:
     """
     Automatically adjusts column widths on a worksheet based on content length.
     Allows specifying columns that should rely on text wrapping instead of auto-sizing.
 
     Args:
         ws: The openpyxl worksheet object.
-        min_width (int): The minimum width for any column.
-        max_width (int): The maximum width for auto-sized columns.
-        wrap_text_columns (List[str], optional): A list of header names for columns
-                                                 that should be set to max_width and rely on wrap text.
+        min_width: The minimum width for any column.
+        max_width: The maximum width for auto-sized columns.
+        wrap_text_columns: A list of header names for columns that should be set to max_width and rely on wrap text.
     """
     if wrap_text_columns is None: # Initialize to empty list if not provided
         wrap_text_columns = []
@@ -995,14 +1032,14 @@ def auto_adjust_columns(ws, min_width: int = COLUMN_MIN_WIDTH, max_width: int = 
             logger.error(f"Error auto-adjusting column {column_letter}: {e}. Setting default width.")
             ws.column_dimensions[column_letter].width = min_width
 
-def create_movies_worksheet(section_name: str, wb: Workbook, movie_list: List[Dict]):
+def create_movies_worksheet(section_name: str, wb: Workbook, movie_list: List[Dict[str, Union[str, int, float]]]) -> None:
     """
     Creates and populates a worksheet for movies.
 
     Args:
-        section_name (str): The name of the Plex library section (used for sheet name).
-        wb (Workbook): The openpyxl Workbook object.
-        movie_list (List[Dict]): A list of dictionaries, each containing movie data.
+        section_name: The name of the Plex library section (used for sheet name).
+        wb: The openpyxl Workbook object.
+        movie_list: A list of dictionaries, each containing movie data.
     """
     if not movie_list: # If no movies were found/processed for this section
         logger.info(f"No movies found in section '{section_name}'. Skipping sheet creation.")
@@ -1090,139 +1127,217 @@ def create_movies_worksheet(section_name: str, wb: Workbook, movie_list: List[Di
     # Adjust column widths.
     auto_adjust_columns(ws, max_width=COLUMN_MAX_WIDTH_WRAPPED, wrap_text_columns=['Summary', 'Tagline', 'File Path', 'Collections', 'Genres', 'Labels'])
 
-def create_tv_shows_worksheet(section_name: str, wb: Workbook, shows_data_full: List[Dict], max_seasons_overall: int):
+def _generate_tv_show_headers(shows_data_full: List[Dict[str, Any]], max_seasons_overall: int) -> Tuple[List[str], List[str]]:
+    """
+    Generates headers for TV show worksheet including base fields, completion status, and season columns.
+
+    Args:
+        shows_data_full: Full show data to check for specials.
+        max_seasons_overall: Maximum number of seasons across all shows.
+
+    Returns:
+        Tuple[List[str], List[str]]: A tuple of (final_headers, season_headers_list)
+    """
+    base_headers = SELECTED_SHOW_FIELDS[:]
+    completion_header = "Series Complete (Plex/TVMaze)"
+    has_specials = any(0 in show_dict.get('seasons_in_plex', {}) for show_dict in shows_data_full)
+    season_headers_list: List[str] = []
+    if has_specials:
+        season_headers_list.append("S00")
+    season_headers_list.extend([f"S{i:02d}" for i in range(1, max_seasons_overall + 1)])
+    final_headers = base_headers + [completion_header] + season_headers_list
+    return final_headers, season_headers_list
+
+
+def _calculate_series_completion(tvmaze_info: Optional[TVMazeShowInfo], plex_seasons_data: Dict[int, PlexSeasonData]) -> Tuple[str, Optional[PatternFill]]:
+    """
+    Calculates series completion status text and fill color.
+
+    Args:
+        tvmaze_info: TVMaze show information.
+        plex_seasons_data: Plex season data.
+
+    Returns:
+        Tuple[str, Optional[PatternFill]]: A tuple of (status_text, fill_pattern)
+    """
+    if tvmaze_info and tvmaze_info.get('total_seasons') is not None:
+        tvmaze_total_regular_seasons = sum(1 for s_num in tvmaze_info.get('seasons', {}) if s_num > 0)
+        complete_plex_regular_seasons_count = 0
+        for s_num, tvmaze_s_data in tvmaze_info.get('seasons', {}).items():
+            if s_num == 0:
+                continue
+            plex_s_data = plex_seasons_data.get(s_num)
+            if plex_s_data and tvmaze_s_data and \
+               plex_s_data.get('episodes_in_plex', 0) >= tvmaze_s_data.get('total_episodes', 0) and \
+               tvmaze_s_data.get('total_episodes', 0) > 0:
+                complete_plex_regular_seasons_count += 1
+        series_status_text = f"{complete_plex_regular_seasons_count}/{tvmaze_total_regular_seasons}"
+
+        if tvmaze_total_regular_seasons == 0:
+            series_fill = STYLES['fills']['gray']
+        elif complete_plex_regular_seasons_count >= tvmaze_total_regular_seasons:
+            series_fill = STYLES['fills']['green']
+        elif complete_plex_regular_seasons_count > 0:
+            series_fill = STYLES['fills']['red']
+        else:
+            series_fill = None
+    else:
+        plex_regular_season_count = sum(1 for s_num in plex_seasons_data if s_num > 0)
+        series_status_text = f"{plex_regular_season_count}/?"
+        series_fill = STYLES['fills']['yellow'] if plex_regular_season_count > 0 else None
+
+    return series_status_text, series_fill
+
+
+def _calculate_season_cell(season_num: int, tvmaze_info: Optional[TVMazeShowInfo], plex_seasons_data: Dict[int, PlexSeasonData]) -> Tuple[str, Optional[PatternFill]]:
+    """
+    Calculates season cell text and fill color for a specific season.
+
+    Args:
+        season_num: Season number to calculate.
+        tvmaze_info: TVMaze show information.
+        plex_seasons_data: Plex season data.
+
+    Returns:
+        Tuple[str, Optional[PatternFill]]: A tuple of (season_text, fill_pattern)
+    """
+    season_text = ""
+    season_fill = None
+    plex_s_ep_count = plex_seasons_data.get(season_num, {}).get('episodes_in_plex', 0)
+
+    if tvmaze_info and tvmaze_info.get('seasons'):
+        tvmaze_s_data = tvmaze_info['seasons'].get(season_num)
+        if tvmaze_s_data:
+            tvmaze_s_ep_count = tvmaze_s_data.get('total_episodes', 0)
+            season_text = f"{plex_s_ep_count}/{tvmaze_s_ep_count}"
+            if tvmaze_s_ep_count == 0:
+                season_fill = STYLES['fills']['gray'] if plex_s_ep_count == 0 else STYLES['fills']['yellow']
+            elif plex_s_ep_count >= tvmaze_s_ep_count:
+                season_fill = STYLES['fills']['green']
+            elif plex_s_ep_count > 0:
+                season_fill = STYLES['fills']['red']
+        else:
+            if plex_s_ep_count > 0:
+                season_text, season_fill = f"{plex_s_ep_count}/?", STYLES['fills']['yellow']
+            else:
+                season_fill = STYLES['fills']['gray']
+    else:
+        if plex_s_ep_count > 0:
+            season_text, season_fill = f"{plex_s_ep_count}/?", STYLES['fills']['yellow']
+        elif season_num > max(plex_seasons_data.keys(), default=-1):
+            season_fill = STYLES['fills']['gray']
+
+    return season_text, season_fill
+
+
+def _write_tv_show_row(ws: Any, row_idx: int, show_info_full: Dict[str, Any], season_headers_list: List[str]) -> None:
+    """
+    Writes a single TV show row with all its data.
+
+    Args:
+        ws: Worksheet object.
+        row_idx: Row index to write to.
+        show_info_full: Full show information dictionary.
+        season_headers_list: List of season header names.
+    """
+    current_col = 1
+
+    # Write base metadata fields
+    for field_name in SELECTED_SHOW_FIELDS:
+        value = show_info_full.get(field_name, 'N/A')
+        cell = ws.cell(row=row_idx, column=current_col)
+        cell.value = value if isinstance(value, (int, float)) and not pd.isna(value) else str(value if not pd.isna(value) else '')
+        alignment_key = 'summary' if field_name in ['Summary', 'Tagline'] else \
+                        'left' if field_name in ['Title', 'Studio', 'Collections', 'Genres', 'Labels'] else 'center'
+        apply_cell_styling(cell, alignment_key=alignment_key)
+        current_col += 1
+
+    # Write series completion status
+    tvmaze_info = show_info_full.get('tvmaze_info')
+    plex_seasons_data = show_info_full.get('seasons_in_plex', {})
+    series_status_text, series_fill = _calculate_series_completion(tvmaze_info, plex_seasons_data)
+    status_cell = ws.cell(row=row_idx, column=current_col, value=series_status_text)
+    apply_cell_styling(status_cell, fill_pattern=series_fill, alignment_key='center')
+    current_col += 1
+
+    # Write individual season cells
+    for season_header_text in season_headers_list:
+        season_num = int(season_header_text[1:])
+        season_text, season_fill = _calculate_season_cell(season_num, tvmaze_info, plex_seasons_data)
+        cell = ws.cell(row=row_idx, column=current_col)
+        cell.value = season_text
+        apply_cell_styling(cell, fill_pattern=season_fill, alignment_key='center')
+        current_col += 1
+
+
+def create_tv_shows_worksheet(section_name: str, wb: Workbook, shows_data_full: List[Dict[str, Any]], max_seasons_overall: int) -> None:
     """
     Creates and populates a worksheet for TV shows.
 
     Args:
-        section_name (str): The name of the Plex library section.
-        wb (Workbook): The openpyxl Workbook object.
-        shows_data_full (List[Dict]): A list of dictionaries, each containing full data for a TV show.
-        max_seasons_overall (int): The maximum number of seasons found across all shows for header generation.
+        section_name: The name of the Plex library section.
+        wb: The openpyxl Workbook object.
+        shows_data_full: A list of dictionaries, each containing full data for a TV show.
+        max_seasons_overall: The maximum number of seasons found across all shows for header generation.
     """
-    if not shows_data_full: logger.info(f"No TV shows found in section '{section_name}'. Skipping sheet creation."); return
+    if not shows_data_full:
+        logger.info(f"No TV shows found in section '{section_name}'. Skipping sheet creation.")
+        return
+
     safe_sheet_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in section_name[:31])
-    ws = wb.create_sheet(safe_sheet_name); 
-    
-    # Sort the full show data list before processing rows.
-    # This ensures that the order of rows in Excel matches the sorted order.
+    ws = wb.create_sheet(safe_sheet_name)
+
+    # Sort the show data
     sort_by_field_show = 'Title' if 'Title' in SELECTED_SHOW_FIELDS else (SELECTED_SHOW_FIELDS[0] if SELECTED_SHOW_FIELDS else None)
     if sort_by_field_show:
-        shows_data_full.sort(key=lambda x: str(x.get(sort_by_field_show, '')).lower()) # Case-insensitive sort
+        shows_data_full.sort(key=lambda x: str(x.get(sort_by_field_show, '')).lower())
 
-    # Define headers: selected base fields + completion status column + dynamic season columns.
-    base_headers = SELECTED_SHOW_FIELDS[:] 
-    completion_header = "Series Complete (Plex/TVMaze)"
-    has_specials = any(0 in show_dict.get('seasons_in_plex', {}) for show_dict in shows_data_full)
-    season_headers_list = []
-    if has_specials: season_headers_list.append("S00") # Add "S00" for specials if any show has them.
-    season_headers_list.extend([f"S{i:02d}" for i in range(1, max_seasons_overall + 1)]) # S01, S02, ...
-    final_headers = base_headers + [completion_header] + season_headers_list
-    
-    # Freeze panes after the base headers and the completion status column.
-    ws.freeze_panes = get_column_letter(len(base_headers) + 1) + '2' if len(base_headers) > 0 else 'A2'
+    # Generate headers
+    final_headers, season_headers_list = _generate_tv_show_headers(shows_data_full, max_seasons_overall)
 
-    # Write and style the header row.
+    # Freeze panes
+    ws.freeze_panes = get_column_letter(len(SELECTED_SHOW_FIELDS) + 1) + '2' if len(SELECTED_SHOW_FIELDS) > 0 else 'A2'
+
+    # Write header row
     for col_idx, header_text in enumerate(final_headers, 1):
         apply_cell_styling(ws.cell(row=1, column=col_idx, value=header_text), is_header=True, alignment_key='center')
 
-    # Iterate through each show's data.
-    for row_idx, show_info_full in enumerate(shows_data_full, 2): 
-        current_col = 1 # Start from the first column for this row.
-        
-        # Write the selected base metadata fields for the show.
-        for field_name in SELECTED_SHOW_FIELDS: 
-            value = show_info_full.get(field_name, 'N/A') 
-            cell = ws.cell(row=row_idx, column=current_col)
-            cell.value = value if isinstance(value, (int, float)) and not pd.isna(value) else str(value if not pd.isna(value) else '')
-            alignment_key = 'summary' if field_name in ['Summary', 'Tagline'] else \
-                            'left' if field_name in ['Title', 'Studio', 'Collections', 'Genres', 'Labels'] else 'center'
-            # No specific row_fill is applied here for base info; relies on table style or default cell style.
-            apply_cell_styling(cell, alignment_key=alignment_key) 
-            current_col += 1
-            
-        # Process and write the "Series Complete" status.
-        tvmaze_info = show_info_full.get('tvmaze_info')
-        plex_seasons_data = show_info_full.get('seasons_in_plex', {})
-        series_status_text, series_fill = "N/A", None # Default values
-        if tvmaze_info and tvmaze_info.get('total_seasons') is not None:
-            # Calculate completion based on regular seasons (S1+).
-            tvmaze_total_regular_seasons = sum(1 for s_num in tvmaze_info.get('seasons', {}) if s_num > 0)
-            complete_plex_regular_seasons_count = 0
-            for s_num, tvmaze_s_data in tvmaze_info.get('seasons', {}).items():
-                if s_num == 0: continue # Skip specials (S00) for this metric
-                plex_s_data = plex_seasons_data.get(s_num)
-                if plex_s_data and tvmaze_s_data and \
-                   plex_s_data.get('episodes_in_plex', 0) >= tvmaze_s_data.get('total_episodes', 0) and \
-                   tvmaze_s_data.get('total_episodes', 0) > 0: # Ensure TVMaze season has episodes
-                    complete_plex_regular_seasons_count += 1
-            series_status_text = f"{complete_plex_regular_seasons_count}/{tvmaze_total_regular_seasons}"
-            # Determine fill color for completion status.
-            if tvmaze_total_regular_seasons == 0: series_fill = STYLES['fills']['gray']
-            elif complete_plex_regular_seasons_count >= tvmaze_total_regular_seasons: series_fill = STYLES['fills']['green']
-            elif complete_plex_regular_seasons_count > 0: series_fill = STYLES['fills']['red']
-        else: # If no TVMaze info, show Plex season count vs '?'
-            plex_regular_season_count = sum(1 for s_num in plex_seasons_data if s_num > 0)
-            series_status_text = f"{plex_regular_season_count}/?"
-            series_fill = STYLES['fills']['yellow'] if plex_regular_season_count > 0 else None
-        
-        status_cell = ws.cell(row=row_idx, column=current_col, value=series_status_text)
-        apply_cell_styling(status_cell, fill_pattern=series_fill, alignment_key='center')
-        current_col += 1
-        
-        # Process and write individual season episode counts (S00, S01, S02...).
-        for season_header_text in season_headers_list:
-            season_num_from_header = int(season_header_text[1:]) # Extract season number from header like "S01"
-            cell = ws.cell(row=row_idx, column=current_col)
-            season_fill, season_text = None, "" # Default values
-            plex_s_ep_count = plex_seasons_data.get(season_num_from_header, {}).get('episodes_in_plex', 0)
-            
-            if tvmaze_info and tvmaze_info.get('seasons'):
-                tvmaze_s_data = tvmaze_info['seasons'].get(season_num_from_header)
-                if tvmaze_s_data: # If this season exists on TVMaze
-                    tvmaze_s_ep_count = tvmaze_s_data.get('total_episodes', 0)
-                    season_text = f"{plex_s_ep_count}/{tvmaze_s_ep_count}"
-                    # Determine fill color for the season cell.
-                    if tvmaze_s_ep_count == 0: season_fill = STYLES['fills']['gray'] if plex_s_ep_count == 0 else STYLES['fills']['yellow']
-                    elif plex_s_ep_count >= tvmaze_s_ep_count: season_fill = STYLES['fills']['green']
-                    elif plex_s_ep_count > 0: season_fill = STYLES['fills']['red']
-                else: # Season not listed on TVMaze
-                    if plex_s_ep_count > 0: season_text, season_fill = f"{plex_s_ep_count}/?", STYLES['fills']['yellow']
-                    else: season_fill = STYLES['fills']['gray'] # No Plex episodes, not on TVMaze
-            else: # No TVMaze info for the show
-                if plex_s_ep_count > 0: season_text, season_fill = f"{plex_s_ep_count}/?", STYLES['fills']['yellow']
-                # Gray out only if season number is beyond what Plex has any record of.
-                elif season_num_from_header > max(plex_seasons_data.keys(), default=-1): season_fill = STYLES['fills']['gray']
-            
-            cell.value = season_text
-            apply_cell_styling(cell, fill_pattern=season_fill, alignment_key='center')
-            current_col += 1
-            
-    # Adjust column widths for the TV show sheet.
+    # Write data rows
+    for row_idx, show_info_full in enumerate(shows_data_full, 2):
+        _write_tv_show_row(ws, row_idx, show_info_full, season_headers_list)
+
+    # Adjust column widths
     auto_adjust_columns(ws, min_width=7, max_width=15, wrap_text_columns=['Summary', 'Tagline', 'Collections', 'Genres', 'Labels'])
 
-    # Specific widths for Title and Studio if they are selected (pre-compute indices)
+    # Set specific widths for Title and Studio
     title_col_idx = SELECTED_SHOW_FIELDS.index('Title') + 1 if 'Title' in SELECTED_SHOW_FIELDS else None
     studio_col_idx = SELECTED_SHOW_FIELDS.index('Studio') + 1 if 'Studio' in SELECTED_SHOW_FIELDS else None
-
     if title_col_idx:
         ws.column_dimensions[get_column_letter(title_col_idx)].width = 35
     if studio_col_idx:
         ws.column_dimensions[get_column_letter(studio_col_idx)].width = 20
 
-    # Create an Excel table for the TV show data.
+    # Create Excel table
     if len(shows_data_full) > 0 and len(final_headers) > 0:
         last_col_letter = get_column_letter(len(final_headers))
         table_name_base = "".join(c if c.isalnum() else "_" for c in safe_sheet_name)
         create_table(ws, f"{table_name_base}_Table", f"A1:{last_col_letter}{len(shows_data_full) + 1}") 
 
 def check_file_writable(filename: str) -> bool:
-    """Checks if a file is writable or if its directory is writable for creation."""
-    if os.path.exists(filename): return os.access(filename, os.W_OK)
-    # If file doesn't exist, check if the parent directory is writable.
-    p_dir = os.path.dirname(filename) or '.'; return os.access(p_dir, os.W_OK)
+    """
+    Checks if a file is writable or if its directory is writable for creation.
 
-def main():
+    Args:
+        filename: The path to the file to check.
+
+    Returns:
+        bool: True if the file can be written, False otherwise.
+    """
+    # Using walrus operator for Python 3.8+ to assign and check in one expression
+    return (os.access(filename, os.W_OK) if os.path.exists(filename)
+            else os.access((p_dir := os.path.dirname(filename) or '.'), os.W_OK))
+
+def main() -> None:
     """Main function to orchestrate the Plex media export process."""
     logger.info("Plex Media Export Script started.")
 
