@@ -1,7 +1,7 @@
 # 📦 Plex Media Export Tools - Because Your Digital Media Hoard Deserves Excel-level OCD
 
 ![GPL License](https://img.shields.io/badge/license-GPL--3.0-blue)
-![Python Version](https://img.shields.io/badge/python-3.6%2B-blue)
+![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
 ![Plex API](https://img.shields.io/badge/PlexAPI-compatible-brightgreen)
 ![Excel Output](https://img.shields.io/badge/Excel-report-success)
 ![TVMaze Integration](https://img.shields.io/badge/TVMaze-integrated-informational)
@@ -49,20 +49,22 @@ Meet your new best frenemy: a trio of Python-powered bad boys that rip your Plex
   - ⬛ Gray: This never existed (Like my social life)
 
 ### 💥 Advanced Features (Because We're Fancy Like That)
-- Multi-threaded processing (faster than my mouth in a fight)
-- Environment variables from .env files (because hardcoding is what killed the dinosaurs)
-- Memory-optimized Excel generation (won't crash your potato computer)
-- Cached TVMaze lookups (because API rate limits are the real enemy)
-- Progress reporting more detailed than my therapy notes
-- Handles errors like an emotionally mature adult. (Not me.)
-- Sortable Excel tables (organization is my middle name... actually it's Winston, but whatever)
+- **Multi-threaded processing** (faster than my mouth in a fight) - Parallel movie AND TV show processing
+- **Persistent TVMaze cache** (90-95% faster on repeat runs) - Cached lookups survive between runs
+- **Professional logging** (debugging without the headache) - Rotating log files with timestamps
+- **Retry logic with exponential backoff** (network hiccups don't phase us)
+- **Environment variable validation** (catches config errors before you waste time)
+- **Environment variables from .env files** (because hardcoding is what killed the dinosaurs)
+- **Memory-optimized Excel generation** (won't crash your potato computer)
+- **Progress reporting** more detailed than my therapy notes
+- **Sortable Excel tables** (organization is my middle name... actually it's Winston, but whatever)
 
 ---
 
 ## 🚀 Installation Instructions (or “How to Not Screw It Up”)
 
 ### 🧰 Requirements
-- Python 3.6+
+- Python 3.8+ (we're modern now, grandpa)
 - Plex server (not imaginary)
 - Plex token (like a golden key but nerdier)
 - Internet (for TVMaze, not for my OnlyFans)
@@ -245,7 +247,38 @@ Want to high-five the mastermind?
 
 ---
 
-## ❓FAQ (Freakin’ Awesome Questions)
+## 🔧 Troubleshooting & Logs
+
+Something broke? Don't panic. We've got logs for that.
+
+### Where Are The Logs?
+The script creates detailed log files in the `logs/` directory (or wherever you set `PLEX_EXPORT_DIR`):
+- **File format:** `plex_export_YYYYMMDD.log`
+- **Retention:** Automatically rotates at 5MB, keeps last 5 files
+- **What's logged:** Everything - connections, API calls, errors, warnings, and debug info
+
+### Checking The Logs
+```bash
+# View today's log
+cat logs/plex_export_$(date +%Y%m%d).log
+
+# Watch logs in real-time (if running)
+tail -f logs/plex_export_$(date +%Y%m%d).log
+
+# Search for errors
+grep "ERROR" logs/*.log
+```
+
+### Cache Files
+The script creates a `.tvmaze_cache.pkl` file that stores TVMaze lookup results:
+- **Location:** Same as your export directory
+- **Lifetime:** 30 days (auto-expires old entries)
+- **Size:** Usually a few KB to a few MB depending on your library
+- **Delete it?** Sure! It'll rebuild on next run (just slower)
+
+---
+
+## ❓FAQ (Freakin' Awesome Questions)
 
 ### Q: Will this work on a headless server?
 **A:** Yes, unlike me, these scripts don't need a pretty face to function.
