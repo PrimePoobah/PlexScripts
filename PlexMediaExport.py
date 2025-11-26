@@ -28,6 +28,7 @@ import os  # For interacting with the operating system (like accessing environme
 import logging  # For professional logging instead of print statements
 from logging.handlers import RotatingFileHandler  # For rotating log files
 import time  # For retry delay timing
+import pickle  # For persistent caching of TVMaze API results
 
 # Third-party library imports
 from dotenv import load_dotenv  # For loading environment variables from a .env file
@@ -122,9 +123,13 @@ else:
 
 # --- API Configuration Constants ---
 TVMAZE_REQUEST_TIMEOUT = 10  # seconds for TVMaze API requests
-TVMAZE_CACHE_SIZE = 256  # maximum number of cached TVMaze lookups
+TVMAZE_CACHE_SIZE = 256  # maximum number of cached TVMaze lookups (in-memory)
 TVMAZE_MAX_RETRIES = 3  # number of retry attempts for failed API calls
 TVMAZE_RETRY_DELAY = 1.0  # seconds between retry attempts
+
+# --- Cache Configuration Constants ---
+TVMAZE_CACHE_FILE = os.path.join(PLEX_EXPORT_DIR if PLEX_EXPORT_DIR else '.', '.tvmaze_cache.pkl')  # persistent cache file path
+TVMAZE_CACHE_MAX_AGE_DAYS = 30  # cache entries older than this are considered stale
 
 # --- Performance Configuration Constants ---
 MAX_WORKER_THREADS = 10  # maximum parallel workers for movie processing
@@ -247,6 +252,123 @@ def retry_on_failure(max_retries=TVMAZE_MAX_RETRIES, base_delay=TVMAZE_RETRY_DEL
     return decorator
 
 
+# --- Persistent Cache Management ---
+# Global variable to hold the persistent cache
+_persistent_tvmaze_cache = {}
+
+
+def load_tvmaze_cache() -> Dict:
+    """
+    Loads the TVMaze cache from disk if it exists and is valid.
+
+    Returns:
+        Dict: The loaded cache dictionary, or an empty dict if no valid cache exists.
+    """
+    global _persistent_tvmaze_cache
+
+    if not os.path.exists(TVMAZE_CACHE_FILE):
+        logging.info("No existing TVMaze cache found. Starting with empty cache.")
+        return {}
+
+    try:
+        with open(TVMAZE_CACHE_FILE, 'rb') as f:
+            cache_data = pickle.load(f)
+
+        # Validate cache structure
+        if not isinstance(cache_data, dict) or 'version' not in cache_data or 'entries' not in cache_data:
+            logging.warning("Invalid cache file structure. Starting with empty cache.")
+            return {}
+
+        # Clean expired entries
+        now = datetime.now()
+        valid_entries = {}
+        expired_count = 0
+
+        for key, entry in cache_data['entries'].items():
+            if 'timestamp' in entry and 'data' in entry:
+                age_days = (now - entry['timestamp']).days
+                if age_days <= TVMAZE_CACHE_MAX_AGE_DAYS:
+                    valid_entries[key] = entry
+                else:
+                    expired_count += 1
+
+        logging.info(f"Loaded TVMaze cache: {len(valid_entries)} valid entries, {expired_count} expired entries removed.")
+        return valid_entries
+
+    except Exception as e:
+        logging.error(f"Error loading TVMaze cache: {e}. Starting with empty cache.")
+        return {}
+
+
+def save_tvmaze_cache():
+    """
+    Saves the current TVMaze cache to disk.
+    """
+    global _persistent_tvmaze_cache
+
+    try:
+        cache_data = {
+            'version': '1.0',
+            'entries': _persistent_tvmaze_cache,
+            'saved_at': datetime.now()
+        }
+
+        # Ensure directory exists
+        cache_dir = os.path.dirname(TVMAZE_CACHE_FILE)
+        if cache_dir and not os.path.exists(cache_dir):
+            os.makedirs(cache_dir, exist_ok=True)
+
+        with open(TVMAZE_CACHE_FILE, 'wb') as f:
+            pickle.dump(cache_data, f)
+
+        logging.info(f"Saved TVMaze cache with {len(_persistent_tvmaze_cache)} entries.")
+
+    except Exception as e:
+        logging.error(f"Error saving TVMaze cache: {e}")
+
+
+def get_from_cache(key: str) -> Optional[Dict]:
+    """
+    Retrieves an entry from the persistent cache if it exists and is valid.
+
+    Args:
+        key: The cache key (usually search term or IMDB ID)
+
+    Returns:
+        Optional[Dict]: The cached data, or None if not found or expired
+    """
+    global _persistent_tvmaze_cache
+
+    if key not in _persistent_tvmaze_cache:
+        return None
+
+    entry = _persistent_tvmaze_cache[key]
+    age_days = (datetime.now() - entry['timestamp']).days
+
+    if age_days > TVMAZE_CACHE_MAX_AGE_DAYS:
+        # Entry expired, remove it
+        del _persistent_tvmaze_cache[key]
+        return None
+
+    return entry['data']
+
+
+def add_to_cache(key: str, data: Dict):
+    """
+    Adds an entry to the persistent cache.
+
+    Args:
+        key: The cache key (usually search term or IMDB ID)
+        data: The data to cache
+    """
+    global _persistent_tvmaze_cache
+
+    _persistent_tvmaze_cache[key] = {
+        'timestamp': datetime.now(),
+        'data': data
+    }
+
+
 # --- Initialization ---
 # Setup logging first so it's available throughout the script
 logger = setup_logging()
@@ -272,6 +394,9 @@ logger.info(f"Selected TV show fields for export: {', '.join(SELECTED_SHOW_FIELD
 # Create a global requests.Session object. This allows for connection pooling,
 # which can improve performance when making multiple HTTP requests to the same host (TVMaze API).
 session = Session()
+
+# Load persistent TVMaze cache from disk
+_persistent_tvmaze_cache = load_tvmaze_cache()
 
 # Define a dictionary of styles to be used for formatting Excel cells.
 # This centralizes style definitions for consistency and easier modification.
@@ -331,11 +456,10 @@ def connect_to_plex() -> Optional[PlexServer]:
         return None
 
 @retry_on_failure() # Decorator to retry on network failures with exponential backoff
-@lru_cache(maxsize=TVMAZE_CACHE_SIZE) # Decorator to cache results of this function.
-def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional[Dict]:
+def _fetch_tvmaze_show_info_from_api(search_term: str, is_imdb_id: bool = False) -> Optional[Dict]:
     """
-    Fetches TV show information (seasons, episode counts) from the TVMaze API.
-    Results are cached to avoid redundant API calls for the same show.
+    Internal function that fetches TV show information directly from the TVMaze API.
+    This is called only when data is not found in persistent or in-memory cache.
 
     Args:
         search_term (str): The name of the TV show or its IMDB ID.
@@ -403,6 +527,42 @@ def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional
     except Exception as e: # Catch any other unexpected errors
         logger.error(f"Unexpected error fetching TVMaze data for '{search_term}': {e}")
     return None # Return None if any error occurs
+
+
+def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional[Dict]:
+    """
+    Fetches TV show information with persistent caching support.
+
+    This function first checks the persistent cache, then falls back to the API if needed.
+    Results from the API are automatically added to the persistent cache.
+
+    Args:
+        search_term (str): The name of the TV show or its IMDB ID.
+        is_imdb_id (bool): True if search_term is an IMDB ID, False if it's a show title.
+
+    Returns:
+        Optional[Dict]: A dictionary containing total seasons and episode counts per season,
+                        or None if the show is not found or an error occurs.
+    """
+    # Create cache key (prefix with type for clarity)
+    cache_key = f"imdb:{search_term}" if is_imdb_id else f"title:{search_term}"
+
+    # Try to get from persistent cache first
+    cached_result = get_from_cache(cache_key)
+    if cached_result is not None:
+        logger.debug(f"Cache hit for TVMaze lookup: {search_term}")
+        return cached_result
+
+    # Cache miss - fetch from API
+    logger.debug(f"Cache miss for TVMaze lookup: {search_term}, fetching from API")
+    result = _fetch_tvmaze_show_info_from_api(search_term, is_imdb_id)
+
+    # Add to cache if we got a valid result (including explicit None for "not found")
+    if result is not None:
+        add_to_cache(cache_key, result)
+
+    return result
+
 
 def format_plex_datetime(dt_obj) -> str:
     """
@@ -1163,6 +1323,9 @@ def main():
         logger.info(f"-----------------------------------------------------------")
     except Exception as e:
         logger.error(f"Error saving workbook to {filename}: {e}")
+
+    # Save the persistent TVMaze cache for future runs
+    save_tvmaze_cache()
 
 # Standard Python idiom: ensure main() is called only when the script is executed directly.
 if __name__ == "__main__": 
