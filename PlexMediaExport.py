@@ -23,10 +23,11 @@ from datetime import datetime  # For timestamping the output file and formatting
 from typing import Dict, List, Optional, Union, Tuple # For type hinting, improving code readability and maintainability
 import sys  # For system-specific parameters and functions, like exiting the script
 from concurrent.futures import ThreadPoolExecutor  # For parallel processing of tasks (like fetching movie details)
-from functools import lru_cache  # For caching results of functions (like TVMaze API calls)
+from functools import lru_cache, wraps  # For caching results and decorator utilities
 import os  # For interacting with the operating system (like accessing environment variables and file paths)
 import logging  # For professional logging instead of print statements
 from logging.handlers import RotatingFileHandler  # For rotating log files
+import time  # For retry delay timing
 
 # Third-party library imports
 from dotenv import load_dotenv  # For loading environment variables from a .env file
@@ -209,6 +210,43 @@ def validate_environment():
 
     return errors, warnings
 
+
+def retry_on_failure(max_retries=TVMAZE_MAX_RETRIES, base_delay=TVMAZE_RETRY_DELAY, backoff_factor=2.0):
+    """
+    Decorator to retry function on failure with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default from TVMAZE_MAX_RETRIES constant)
+        base_delay: Initial delay between retries in seconds (default from TVMAZE_RETRY_DELAY constant)
+        backoff_factor: Multiplier for delay after each retry (default 2.0)
+
+    Returns:
+        Decorated function that retries on requests.exceptions.RequestException
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = base_delay
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_retries:
+                        # Use a logger that will be available at runtime
+                        logging.warning(f"{func.__name__} failed (attempt {attempt + 1}/{max_retries + 1}): {e}. Retrying in {delay:.1f}s...")
+                        time.sleep(delay)
+                        delay *= backoff_factor
+                    else:
+                        logging.error(f"{func.__name__} failed after {max_retries + 1} attempts: {e}")
+                        raise
+                except Exception as e:
+                    logging.error(f"{func.__name__} encountered unexpected error: {e}")
+                    raise
+            return None
+        return wrapper
+    return decorator
+
+
 # --- Initialization ---
 # Setup logging first so it's available throughout the script
 logger = setup_logging()
@@ -292,6 +330,7 @@ def connect_to_plex() -> Optional[PlexServer]:
         logger.error(f"Failed to connect to Plex server: {e}")
         return None
 
+@retry_on_failure() # Decorator to retry on network failures with exponential backoff
 @lru_cache(maxsize=TVMAZE_CACHE_SIZE) # Decorator to cache results of this function.
 def get_tvmaze_show_info(search_term: str, is_imdb_id: bool = False) -> Optional[Dict]:
     """
@@ -590,10 +629,95 @@ def process_show_metadata(show_obj) -> Dict:
         show_metadata[field_name] = value
     return show_metadata
 
+def process_single_show(show_obj) -> Dict:
+    """
+    Processes a single TV show to retrieve its metadata, TVMaze info, and Plex season data.
+
+    This function is designed to be called in parallel by ThreadPoolExecutor.
+
+    Args:
+        show_obj: A Plex TV show object.
+
+    Returns:
+        Dict: A dictionary containing show metadata, Plex season data, TVMaze info, and max seasons.
+    """
+    try:
+        logger.info(f"Processing TV Show: {show_obj.title}")
+
+        # Get the base metadata for the show using the selected fields.
+        show_metadata = process_show_metadata(show_obj)
+
+        # Attempt to find IMDB ID for TVMaze lookup.
+        imdb_id_full = next((guid.id for guid in show_obj.guids if guid.id.startswith('imdb://')), None)
+        imdb_id = imdb_id_full.split('imdb://')[-1] if imdb_id_full else None
+
+        # Optimized TVMaze lookup with fallback logic
+        tvmaze_info = None
+        if imdb_id:  # Try TVMaze lookup with IMDB ID first (most reliable).
+            logger.debug(f"  Attempting TVMaze lookup by IMDB ID: {imdb_id}")
+            tvmaze_info = get_tvmaze_show_info(imdb_id, is_imdb_id=True)
+            if tvmaze_info:
+                logger.debug(f"  TVMaze lookup successful via IMDB ID")
+
+        # Fallback to title search only if IMDB lookup failed and we have a valid title
+        if not tvmaze_info:
+            search_title = show_obj.originalTitle if show_obj.originalTitle else show_obj.title
+            if search_title and search_title.strip():  # Only search if we have a non-empty title
+                logger.debug(f"  Attempting TVMaze lookup by title: {search_title}")
+                tvmaze_info = get_tvmaze_show_info(search_title)
+                if tvmaze_info:
+                    logger.debug(f"  TVMaze lookup successful via title search")
+
+        # Track max seasons for this show
+        show_max_seasons = 0
+        if tvmaze_info and tvmaze_info.get('total_seasons') is not None:
+            show_max_seasons = tvmaze_info['total_seasons']
+        elif not tvmaze_info:
+            logger.warning(f"  Could not find TVMaze info for: {show_obj.title} (IMDB: {imdb_id or 'N/A'})")
+
+        # Get season and episode counts from Plex.
+        plex_seasons_data = {}
+        try:
+            for s in show_obj.seasons():
+                if s.seasonNumber is not None:  # Only process seasons with a valid number
+                    try:
+                        season_num_int = int(s.seasonNumber)
+                        plex_seasons_data[season_num_int] = {
+                            'episodes_in_plex': s.leafCount,  # Use leafCount for O(1) access instead of len(s.episodes())
+                            'season_number': season_num_int
+                        }
+                    except ValueError:  # Handle cases where seasonNumber might not be a valid integer
+                        logger.warning(f"  Skipping invalid season number '{s.seasonNumber}' for show '{show_obj.title}'")
+        except Exception as e:
+            logger.error(f"  Error fetching Plex season details for {show_obj.title}: {e}")
+
+        # Combine the base metadata, Plex season data, TVMaze info, and max seasons
+        combined_show_data = {
+            **show_metadata,
+            'seasons_in_plex': plex_seasons_data,
+            'tvmaze_info': tvmaze_info,
+            'max_seasons': show_max_seasons
+        }
+
+        return combined_show_data
+
+    except Exception as e:
+        logger.error(f"Error processing show {show_obj.title}: {e}")
+        # Return minimal data on error
+        return {
+            'Title': show_obj.title,
+            'seasons_in_plex': {},
+            'tvmaze_info': None,
+            'max_seasons': 0
+        }
+
+
 def get_show_details(shows: List) -> Tuple[List[Dict], int]:
     """
-    Retrieves detailed information for a list of TV shows, including base metadata,
-    Plex season/episode counts, and TVMaze information.
+    Retrieves detailed information for a list of TV shows using parallel processing.
+
+    This function uses ThreadPoolExecutor to process multiple shows concurrently,
+    significantly improving performance for large libraries.
 
     Args:
         shows (List): A list of Plex TV show objects.
@@ -604,52 +728,27 @@ def get_show_details(shows: List) -> Tuple[List[Dict], int]:
             - An integer representing the maximum number of seasons found across all shows.
     """
     processed_shows_data = []
-    max_seasons_overall = 0 # Track the highest season number encountered for column generation.
-    
-    # Iterate through each show object from Plex.
-    for i, show_obj in enumerate(shows):
-        logger.info(f"Processing TV Show: {show_obj.title} ({i+1}/{len(shows)})")
-        
-        # Get the base metadata for the show using the selected fields.
-        show_metadata = process_show_metadata(show_obj) 
-        
-        # Attempt to find IMDB ID for TVMaze lookup.
-        imdb_id_full = next((guid.id for guid in show_obj.guids if guid.id.startswith('imdb://')), None)
-        imdb_id = imdb_id_full.split('imdb://')[-1] if imdb_id_full else None
-        
-        tvmaze_info = None
-        if imdb_id: # Try TVMaze lookup with IMDB ID first.
-            tvmaze_info = get_tvmaze_show_info(imdb_id, is_imdb_id=True)
-        if not tvmaze_info: # If IMDB lookup fails or no ID, try with show title.
-            search_title = show_obj.originalTitle if show_obj.originalTitle else show_obj.title
-            tvmaze_info = get_tvmaze_show_info(search_title)
-        
-        # Update the overall maximum number of seasons if TVMaze info is found.
-        if tvmaze_info and tvmaze_info.get('total_seasons') is not None:
-            max_seasons_overall = max(max_seasons_overall, tvmaze_info['total_seasons'])
-        elif not tvmaze_info:
-            logger.warning(f"  Could not find TVMaze info for: {show_obj.title} (IMDB: {imdb_id})")
-            
-        # Get season and episode counts from Plex.
-        plex_seasons_data = {}
-        try:
-            for s in show_obj.seasons():
-                if s.seasonNumber is not None: # Only process seasons with a valid number
-                    try:
-                        season_num_int = int(s.seasonNumber)
-                        plex_seasons_data[season_num_int] = {
-                            'episodes_in_plex': len(s.episodes()),
-                            'season_number': season_num_int
-                        }
-                    except ValueError: # Handle cases where seasonNumber might not be a valid integer
-                        logger.warning(f"  Skipping invalid season number '{s.seasonNumber}' for show '{show_obj.title}'")
-        except Exception as e:
-            logger.error(f"  Error fetching Plex season details for {show_obj.title}: {e}")
-            
-        # Combine the base metadata, Plex season data, and TVMaze info into one dictionary for the show.
-        combined_show_data = {**show_metadata, 'seasons_in_plex': plex_seasons_data, 'tvmaze_info': tvmaze_info}
-        processed_shows_data.append(combined_show_data)
-        
+    max_seasons_overall = 0
+
+    # Calculate optimal number of workers
+    num_workers = min(MAX_WORKER_THREADS, len(shows))
+
+    logger.info(f"Processing {len(shows)} TV shows with {num_workers} parallel workers...")
+
+    # Use ThreadPoolExecutor for parallel processing
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # Submit all show processing tasks and get results as they complete
+        show_results = list(executor.map(process_single_show, shows))
+
+    # Process results and find max seasons
+    for show_data in show_results:
+        if show_data:
+            show_max = show_data.pop('max_seasons', 0)  # Remove and get max_seasons from the dict
+            max_seasons_overall = max(max_seasons_overall, show_max)
+            processed_shows_data.append(show_data)
+
+    logger.info(f"Completed processing {len(processed_shows_data)} TV shows.")
+
     return processed_shows_data, max_seasons_overall
 
 def apply_cell_styling(cell, is_header: bool = False, alignment_key: str = 'center', fill_pattern=None):
@@ -791,24 +890,23 @@ def create_movies_worksheet(section_name: str, wb: Workbook, movie_list: List[Di
     # Write and style the header row.
     for col_idx, header_text in enumerate(headers, 1):
         apply_cell_styling(ws.cell(row=1, column=col_idx, value=header_text), is_header=True, alignment_key='center')
-    
+
+    # Pre-compute column indices for O(1) lookup instead of O(n) in loops
+    resolution_col_idx = SELECTED_MOVIE_FIELDS.index('Video Resolution') if 'Video Resolution' in SELECTED_MOVIE_FIELDS else None
+
     # --- Debugging Movie Fills ---
     # This section was previously used for debugging and can be re-enabled if needed.
-    # print(f"\n--- Debugging Movie Fills for Section: {section_name} ---") 
-    
+    # print(f"\n--- Debugging Movie Fills for Section: {section_name} ---")
+
     # Iterate through each row of movie data in the DataFrame.
     for row_idx, row_data_tuple in enumerate(df.itertuples(index=False), 2): # Start from Excel row 2
         row_fill = None # Default to no specific fill for the row.
-        
+
         # Determine row fill color based on 'Video Resolution' if that field is selected for export.
-        if 'Video Resolution' in SELECTED_MOVIE_FIELDS:
+        if resolution_col_idx is not None:
             try:
-                # Access the 'Video Resolution' value from the named tuple.
-                # Pandas DataFrame's itertuples() replaces spaces in column names with underscores for attribute access.
-                # However, since we construct the DataFrame with SELECTED_MOVIE_FIELDS, the tuple elements are in that order.
-                # Accessing by index is more robust if column names are complex.
-                res_col_idx = SELECTED_MOVIE_FIELDS.index('Video Resolution')
-                raw_resolution_from_tuple = row_data_tuple[res_col_idx]
+                # Access the 'Video Resolution' value using pre-computed index
+                raw_resolution_from_tuple = row_data_tuple[resolution_col_idx]
                 
                 resolution_val = str(raw_resolution_from_tuple).strip().lower() # Process for comparison
 
@@ -957,13 +1055,15 @@ def create_tv_shows_worksheet(section_name: str, wb: Workbook, shows_data_full: 
             
     # Adjust column widths for the TV show sheet.
     auto_adjust_columns(ws, min_width=7, max_width=15, wrap_text_columns=['Summary', 'Tagline', 'Collections', 'Genres', 'Labels'])
-    # Specific widths for Title and Studio if they are selected.
-    if 'Title' in SELECTED_SHOW_FIELDS:
-        try: ws.column_dimensions[get_column_letter(SELECTED_SHOW_FIELDS.index('Title') + 1)].width = 35
-        except ValueError: pass # Should not happen if logic is correct
-    if 'Studio' in SELECTED_SHOW_FIELDS:
-        try: ws.column_dimensions[get_column_letter(SELECTED_SHOW_FIELDS.index('Studio') + 1)].width = 20
-        except ValueError: pass
+
+    # Specific widths for Title and Studio if they are selected (pre-compute indices)
+    title_col_idx = SELECTED_SHOW_FIELDS.index('Title') + 1 if 'Title' in SELECTED_SHOW_FIELDS else None
+    studio_col_idx = SELECTED_SHOW_FIELDS.index('Studio') + 1 if 'Studio' in SELECTED_SHOW_FIELDS else None
+
+    if title_col_idx:
+        ws.column_dimensions[get_column_letter(title_col_idx)].width = 35
+    if studio_col_idx:
+        ws.column_dimensions[get_column_letter(studio_col_idx)].width = 20
 
     # Create an Excel table for the TV show data.
     if len(shows_data_full) > 0 and len(final_headers) > 0:
