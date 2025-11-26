@@ -448,10 +448,78 @@ def format_plex_list(plex_list_attr) -> str:
     except Exception: # Catch any error during list processing
         return 'Error processing list'
 
+
+# --- Field Processor Dictionaries ---
+# Dictionary-based approach for field extraction, eliminating long if-elif chains.
+# Each field maps to a callable that extracts the value from the Plex object.
+
+def _get_movie_field_processors():
+    """
+    Returns a dictionary of field processors for movie fields.
+    Each processor is a callable that takes (movie, media, parts) and returns the field value.
+    """
+    return {
+        'Title': lambda m, _, __: getattr(m, 'title', 'N/A'),
+        'Year': lambda m, _, __: getattr(m, 'year', 'N/A'),
+        'Studio': lambda m, _, __: getattr(m, 'studio', None) or 'N/A',
+        'ContentRating': lambda m, _, __: getattr(m, 'contentRating', None) or 'N/A',
+        'Duration (min)': lambda m, _, __: round(m.duration / 60000) if hasattr(m, 'duration') and m.duration else 'N/A',
+        'AddedAt': lambda m, _, __: format_plex_datetime(m.addedAt) if hasattr(m, 'addedAt') else 'N/A',
+        'LastViewedAt': lambda m, _, __: format_plex_datetime(m.lastViewedAt) if hasattr(m, 'lastViewedAt') else 'N/A',
+        'OriginallyAvailableAt': lambda m, _, __: format_plex_datetime(m.originallyAvailableAt) if hasattr(m, 'originallyAvailableAt') else 'N/A',
+        'Summary': lambda m, _, __: getattr(m, 'summary', None) or 'N/A',
+        'Tagline': lambda m, _, __: getattr(m, 'tagline', None) or 'N/A',
+        'AudienceRating': lambda m, _, __: getattr(m, 'audienceRating', None) or 'N/A',
+        'Rating': lambda m, _, __: getattr(m, 'rating', None) or 'N/A',
+        'Collections': lambda m, _, __: format_plex_list(m.collections) if hasattr(m, 'collections') else 'N/A',
+        'Genres': lambda m, _, __: format_plex_list(m.genres) if hasattr(m, 'genres') else 'N/A',
+        'Labels': lambda m, _, __: format_plex_list(m.labels) if hasattr(m, 'labels') else 'N/A',
+        'ViewCount': lambda m, _, __: getattr(m, 'viewCount', 0) or 0,
+        'SkipCount': lambda m, _, __: getattr(m, 'skipCount', 0) or 0,
+        # Media-dependent fields
+        'Video Resolution': lambda _, media, __: str(getattr(media, 'videoResolution', '')).strip() if media and getattr(media, 'videoResolution', '').strip() else 'Unknown',
+        'Bitrate (kbps)': lambda _, media, __: getattr(media, 'bitrate', None) if media and getattr(media, 'bitrate', None) else 'Unknown',
+        'Container': lambda _, media, __: getattr(media, 'container', None) if media and getattr(media, 'container', None) else 'Unknown',
+        'AspectRatio': lambda _, media, __: getattr(media, 'aspectRatio', None) or 'N/A' if media else 'N/A',
+        'AudioChannels': lambda _, media, __: getattr(media, 'audioChannels', None) or 'N/A' if media else 'N/A',
+        'AudioCodec': lambda _, media, __: getattr(media, 'audioCodec', None) or 'N/A' if media else 'N/A',
+        'VideoCodec': lambda _, media, __: getattr(media, 'videoCodec', None) or 'N/A' if media else 'N/A',
+        'VideoFrameRate': lambda _, media, __: getattr(media, 'videoFrameRate', None) or 'N/A' if media else 'N/A',
+        'Height': lambda _, media, __: getattr(media, 'height', None) or 'N/A' if media else 'N/A',
+        'Width': lambda _, media, __: getattr(media, 'width', None) or 'N/A' if media else 'N/A',
+        'File Path': lambda _, __, parts: parts.file if parts and hasattr(parts, 'file') else 'Unknown',
+    }
+
+
+def _get_show_field_processors():
+    """
+    Returns a dictionary of field processors for TV show fields.
+    Each processor is a callable that takes (show_obj) and returns the field value.
+    """
+    return {
+        'Title': lambda s: getattr(s, 'title', 'N/A'),
+        'Year': lambda s: getattr(s, 'year', 'N/A'),
+        'Studio': lambda s: getattr(s, 'studio', None) or 'N/A',
+        'ContentRating': lambda s: getattr(s, 'contentRating', None) or 'N/A',
+        'Summary': lambda s: getattr(s, 'summary', None) or 'N/A',
+        'Tagline': lambda s: getattr(s, 'tagline', None) or 'N/A',
+        'AddedAt': lambda s: format_plex_datetime(s.addedAt) if hasattr(s, 'addedAt') else 'N/A',
+        'LastViewedAt': lambda s: format_plex_datetime(s.lastViewedAt) if hasattr(s, 'lastViewedAt') else 'N/A',
+        'OriginallyAvailableAt': lambda s: format_plex_datetime(s.originallyAvailableAt) if hasattr(s, 'originallyAvailableAt') else 'N/A',
+        'AudienceRating': lambda s: getattr(s, 'audienceRating', None) or 'N/A',
+        'Rating': lambda s: getattr(s, 'rating', None) or 'N/A',
+        'Collections': lambda s: format_plex_list(s.collections) if hasattr(s, 'collections') else 'N/A',
+        'Genres': lambda s: format_plex_list(s.genres) if hasattr(s, 'genres') else 'N/A',
+        'Labels': lambda s: format_plex_list(s.labels) if hasattr(s, 'labels') else 'N/A',
+        'ViewCount': lambda s: getattr(s, 'viewCount', 0) or 0,
+        'SkipCount': lambda s: getattr(s, 'skipCount', 0) or 0,
+    }
+
+
 def process_movie(movie) -> Dict:
     """
     Processes a single Plex movie object and extracts data for the fields
-    specified in SELECTED_MOVIE_FIELDS.
+    specified in SELECTED_MOVIE_FIELDS using a dictionary-based approach.
 
     Args:
         movie: A Plex movie object.
@@ -459,98 +527,39 @@ def process_movie(movie) -> Dict:
     Returns:
         Dict: A dictionary containing the extracted movie data.
     """
-    movie_data = {} # Initialize an empty dictionary to store data for selected fields
-    media = None    # Will hold the primary media object for the movie
-    parts = None    # Will hold the primary part object from the media
+    movie_data = {}
 
-    # Determine if any media-dependent fields are selected for export.
-    # If so, fetch the media and parts objects once to avoid redundant lookups.
-    media_dependent_fields = [
+    # Fetch media and parts objects once if any media-dependent fields are requested
+    media_dependent_fields = {
         'Video Resolution', 'Bitrate (kbps)', 'File Path', 'Container',
         'AspectRatio', 'AudioChannels', 'AudioCodec', 'VideoCodec',
         'VideoFrameRate', 'Height', 'Width'
-    ]
-    if any(field in SELECTED_MOVIE_FIELDS for field in media_dependent_fields):
-        media = movie.media[0] if movie.media else None # Get the first media item
-        if media:
-            parts = media.parts[0] if media.parts else None # Get the first part of that media item
+    }
 
-    # Iterate through only the fields selected by the user for export.
+    media = None
+    parts = None
+    if any(field in SELECTED_MOVIE_FIELDS for field in media_dependent_fields):
+        media = movie.media[0] if movie.media else None
+        if media:
+            parts = media.parts[0] if media.parts else None
+
+    # Get field processors dictionary
+    field_processors = _get_movie_field_processors()
+
+    # Process each selected field using the dictionary lookup
     for field_name in SELECTED_MOVIE_FIELDS:
-        value = 'N/A' # Default value for any field
         try:
-            # Retrieve data for each selected field based on its name.
-            # Uses hasattr to check for attribute existence before accessing to prevent errors.
-            if field_name == 'Title':
-                if hasattr(movie, 'title'): value = movie.title
-            elif field_name == 'Year':
-                if hasattr(movie, 'year'): value = movie.year
-            elif field_name == 'Studio':
-                if hasattr(movie, 'studio') and movie.studio is not None: value = movie.studio
-            elif field_name == 'ContentRating':
-                if hasattr(movie, 'contentRating') and movie.contentRating is not None: value = movie.contentRating
-            elif field_name == 'Duration (min)':
-                if hasattr(movie, 'duration') and movie.duration is not None: value = round(movie.duration / 60000) # Convert ms to minutes
-            elif field_name == 'AddedAt':
-                if hasattr(movie, 'addedAt'): value = format_plex_datetime(movie.addedAt)
-            elif field_name == 'LastViewedAt':
-                if hasattr(movie, 'lastViewedAt'): value = format_plex_datetime(movie.lastViewedAt)
-            elif field_name == 'OriginallyAvailableAt':
-                if hasattr(movie, 'originallyAvailableAt'): value = format_plex_datetime(movie.originallyAvailableAt)
-            elif field_name == 'Summary':
-                if hasattr(movie, 'summary') and movie.summary is not None: value = movie.summary
-            elif field_name == 'Tagline':
-                if hasattr(movie, 'tagline') and movie.tagline is not None: value = movie.tagline
-            elif field_name == 'AudienceRating':
-                if hasattr(movie, 'audienceRating') and movie.audienceRating is not None: value = movie.audienceRating
-            elif field_name == 'Rating': # Typically critic rating
-                if hasattr(movie, 'rating') and movie.rating is not None: value = movie.rating
-            elif field_name == 'Collections':
-                if hasattr(movie, 'collections'): value = format_plex_list(movie.collections)
-            elif field_name == 'Genres':
-                if hasattr(movie, 'genres'): value = format_plex_list(movie.genres)
-            elif field_name == 'Labels':
-                if hasattr(movie, 'labels'): value = format_plex_list(movie.labels)
-            elif field_name == 'ViewCount':
-                if hasattr(movie, 'viewCount') and movie.viewCount is not None: value = movie.viewCount
-                else: value = 0 # Default to 0 if not present
-            elif field_name == 'SkipCount':
-                if hasattr(movie, 'skipCount') and movie.skipCount is not None: value = movie.skipCount
-                else: value = 0 # Default to 0
-            # Media-dependent fields are processed only if 'media' object was successfully retrieved.
-            elif media: 
-                if field_name == 'Video Resolution':
-                    res_val_raw = getattr(media, 'videoResolution', None)
-                    # Ensure robust handling: if raw value is None, empty, or just whitespace, set to 'Unknown'.
-                    value = str(res_val_raw).strip() if res_val_raw and isinstance(res_val_raw, str) and res_val_raw.strip() else 'Unknown'
-                elif field_name == 'Bitrate (kbps)':
-                    br_val = getattr(media, 'bitrate', None)
-                    value = br_val if br_val is not None and str(br_val).strip() else 'Unknown'
-                elif field_name == 'Container':
-                    con_val = getattr(media, 'container', None)
-                    value = con_val if con_val and str(con_val).strip() else 'Unknown'
-                elif field_name == 'AspectRatio':
-                    if hasattr(media, 'aspectRatio') and media.aspectRatio is not None: value = media.aspectRatio
-                elif field_name == 'AudioChannels':
-                    if hasattr(media, 'audioChannels') and media.audioChannels is not None: value = media.audioChannels
-                elif field_name == 'AudioCodec':
-                    if hasattr(media, 'audioCodec') and media.audioCodec is not None: value = media.audioCodec
-                elif field_name == 'VideoCodec':
-                    if hasattr(media, 'videoCodec') and media.videoCodec is not None: value = media.videoCodec
-                elif field_name == 'VideoFrameRate':
-                    if hasattr(media, 'videoFrameRate') and media.videoFrameRate is not None: value = media.videoFrameRate
-                elif field_name == 'Height':
-                    if hasattr(media, 'height') and media.height is not None: value = media.height
-                elif field_name == 'Width':
-                    if hasattr(media, 'width') and media.width is not None: value = media.width
-                elif field_name == 'File Path':
-                    if parts and hasattr(parts, 'file'): value = parts.file
-                    else: value = 'Unknown'
+            processor = field_processors.get(field_name)
+            if processor:
+                value = processor(movie, media, parts)
+            else:
+                logger.warning(f"Unknown field '{field_name}' requested for movie export")
+                value = 'N/A'
         except Exception as e:
-            # If any error occurs while processing a field, log it and set value to 'Error Processing Field'.
             logger.error(f"Error processing field '{field_name}' for movie '{getattr(movie, 'title', 'Unknown Title')}': {e}")
             value = 'Error Processing Field'
-        movie_data[field_name] = value # Store the processed value (or 'N/A' or error string)
+
+        movie_data[field_name] = value
 
     return movie_data
 
@@ -575,7 +584,7 @@ def get_movie_details(movies: List) -> List[Dict]:
 def process_show_metadata(show_obj) -> Dict:
     """
     Processes a single Plex TV show object and extracts base metadata for the fields
-    specified in SELECTED_SHOW_FIELDS.
+    specified in SELECTED_SHOW_FIELDS using a dictionary-based approach.
 
     Args:
         show_obj: A Plex TV show object.
@@ -583,50 +592,26 @@ def process_show_metadata(show_obj) -> Dict:
     Returns:
         Dict: A dictionary containing the extracted TV show metadata.
     """
-    show_metadata = {} # Initialize an empty dictionary for selected fields
-    # Iterate through only the fields selected by the user for TV show export.
+    show_metadata = {}
+
+    # Get field processors dictionary
+    field_processors = _get_show_field_processors()
+
+    # Process each selected field using the dictionary lookup
     for field_name in SELECTED_SHOW_FIELDS:
-        value = 'N/A' # Default value
         try:
-            # Retrieve data for each selected field.
-            if field_name == 'Title':
-                if hasattr(show_obj, 'title'): value = show_obj.title
-            elif field_name == 'Year':
-                if hasattr(show_obj, 'year'): value = show_obj.year
-            elif field_name == 'Studio':
-                if hasattr(show_obj, 'studio') and show_obj.studio is not None: value = show_obj.studio
-            elif field_name == 'ContentRating':
-                if hasattr(show_obj, 'contentRating') and show_obj.contentRating is not None: value = show_obj.contentRating
-            elif field_name == 'Summary':
-                if hasattr(show_obj, 'summary') and show_obj.summary is not None: value = show_obj.summary
-            elif field_name == 'Tagline':
-                if hasattr(show_obj, 'tagline') and show_obj.tagline is not None: value = show_obj.tagline
-            elif field_name == 'AddedAt':
-                if hasattr(show_obj, 'addedAt'): value = format_plex_datetime(show_obj.addedAt)
-            elif field_name == 'LastViewedAt':
-                if hasattr(show_obj, 'lastViewedAt'): value = format_plex_datetime(show_obj.lastViewedAt)
-            elif field_name == 'OriginallyAvailableAt':
-                if hasattr(show_obj, 'originallyAvailableAt'): value = format_plex_datetime(show_obj.originallyAvailableAt)
-            elif field_name == 'AudienceRating':
-                if hasattr(show_obj, 'audienceRating') and show_obj.audienceRating is not None: value = show_obj.audienceRating
-            elif field_name == 'Rating':
-                if hasattr(show_obj, 'rating') and show_obj.rating is not None: value = show_obj.rating
-            elif field_name == 'Collections':
-                if hasattr(show_obj, 'collections'): value = format_plex_list(show_obj.collections)
-            elif field_name == 'Genres':
-                if hasattr(show_obj, 'genres'): value = format_plex_list(show_obj.genres)
-            elif field_name == 'Labels':
-                if hasattr(show_obj, 'labels'): value = format_plex_list(show_obj.labels)
-            elif field_name == 'ViewCount':
-                if hasattr(show_obj, 'viewCount') and show_obj.viewCount is not None: value = show_obj.viewCount
-                else: value = 0
-            elif field_name == 'SkipCount':
-                if hasattr(show_obj, 'skipCount') and show_obj.skipCount is not None: value = show_obj.skipCount
-                else: value = 0
+            processor = field_processors.get(field_name)
+            if processor:
+                value = processor(show_obj)
+            else:
+                logger.warning(f"Unknown field '{field_name}' requested for TV show export")
+                value = 'N/A'
         except Exception as e:
             logger.error(f"Error processing field '{field_name}' for show '{getattr(show_obj, 'title', 'Unknown Title')}': {e}")
             value = 'Error Processing Field'
+
         show_metadata[field_name] = value
+
     return show_metadata
 
 def process_single_show(show_obj) -> Dict:
