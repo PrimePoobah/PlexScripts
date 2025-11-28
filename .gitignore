@@ -137,3 +137,8 @@ Desktop.ini
 # IDE / Editor specific files
 *.swp
 *~
+
+# Script-generated files (logs and cache)
+logs/
+.tvmaze_cache.pkl
+*.backup
