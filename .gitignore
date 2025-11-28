@@ -142,3 +142,8 @@ Desktop.ini
 logs/
 .tvmaze_cache.pkl
 *.backup
+
+
+# Claude-specific
+Claude.md
+.clause/
